@@ -38,7 +38,7 @@ export default function EmployeePerformance() {
   });
 
   useEffect(() => {
-    if (!employeeId || role !== "manager") return;
+    if (!employeeId || (role !== "manager" && role !== "admin")) return;
     fetchEmployeeData();
   }, [employeeId, period, role]);
 
@@ -134,12 +134,12 @@ export default function EmployeePerformance() {
     });
   };
 
-  if (role !== "manager") {
+  if (role !== "manager" && role !== "admin") {
     return (
       <div className="pb-24">
         <PageHeader title="Employee Performance" subtitle="Access restricted" />
         <div className="px-4 mt-8 text-center">
-          <p className="text-muted-foreground">Only managers can access this page.</p>
+          <p className="text-muted-foreground">Only managers and admins can access this page.</p>
         </div>
       </div>
     );

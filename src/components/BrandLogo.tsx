@@ -38,7 +38,7 @@ export function BrandLogo({ variant = "header", className }: BrandLogoProps) {
           width={hero ? 116 : 44}
           height={hero ? 116 : 44}
           decoding="async"
-          fetchPriority={hero ? "high" : "auto"}
+          loading={hero ? "eager" : "lazy"}
           className="h-full w-full object-contain select-none"
           draggable={false}
         />

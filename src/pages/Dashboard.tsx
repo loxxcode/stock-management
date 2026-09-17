@@ -1,15 +1,18 @@
 import { useState } from "react";
-import { DollarSign, Package, TrendingUp, AlertTriangle, ShoppingCart, ArrowDownRight, HandCoins, Eye, EyeOff } from "lucide-react";
+import { DollarSign, Package, TrendingUp, AlertTriangle, ShoppingCart, ArrowDownRight, HandCoins, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 import { useProducts, useSales, useExpenses, useCustomerCredits } from "@/lib/store";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function Dashboard() {
   const [showLowStock, setShowLowStock] = useState(true);
+  const { role } = useAuth();
   const { products } = useProducts();
   const { sales } = useSales();
   const { expenses } = useExpenses();
   const { credits } = useCustomerCredits();
+  const isAdmin = role === "admin";
 
   const today = new Date().toISOString().split("T")[0];
   const todaySales = sales.filter(s => s.date === today);
@@ -22,9 +25,30 @@ export default function Dashboard() {
 
   return (
     <div className="pb-24">
-      <PageHeader title="ICYIZERE-BUSINESS" subtitle="Today's Overview" showNotification />
+      <PageHeader
+        title={isAdmin ? "Admin Dashboard" : "ICYIZERE-BUSINESS"}
+        subtitle={isAdmin ? "Business control center" : "Today's Overview"}
+        showNotification
+      />
 
       <div className="px-4 space-y-4 mt-2">
+        {isAdmin && (
+          <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+            <div className="flex items-center gap-2 text-primary">
+              <ShieldCheck className="h-4 w-4" />
+              <span className="text-xs font-semibold uppercase tracking-[0.2em]">Admin overview</span>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-lg font-bold text-foreground">Operations summary</p>
+                <p className="text-xs text-muted-foreground">{products.length} products · {sales.length} sales · {credits.length} credits</p>
+              </div>
+              <div className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                Live
+              </div>
+            </div>
+          </div>
+        )}
         {/* Stats Grid */}
         <div className="grid grid-cols-2 gap-3">
           <StatCard

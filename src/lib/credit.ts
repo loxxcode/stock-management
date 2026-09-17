@@ -15,6 +15,29 @@ export interface CreditSummary {
   paidCount: number;
 }
 
+export interface EmployeeLink {
+  manager_user_id: string;
+  employee_user_id: string;
+}
+
+export function getVisibleCreditUserIds(
+  currentUserId: string,
+  role: string | null,
+  employeeLinks: EmployeeLink[] = []
+): string[] | null {
+  if (role === "admin") return null;
+
+  if (role === "manager") {
+    const visible = new Set<string>([currentUserId]);
+    employeeLinks
+      .filter((link) => link.manager_user_id === currentUserId)
+      .forEach((link) => visible.add(link.employee_user_id));
+    return Array.from(visible);
+  }
+
+  return [currentUserId];
+}
+
 export function getCreditStatus(
   amountDue: number | string = 0,
   paidAmount: number | string = 0

@@ -14,6 +14,7 @@ type SettingsView = "main" | "profile" | "security" | "password";
 
 export default function Settings() {
   const { user, profile, role, signOut, refreshProfile } = useAuth();
+  const canManageEmployees = role === "manager" || role === "admin";
   const navigate = useNavigate();
   const [view, setView] = useState<SettingsView>("main");
   const [loading, setLoading] = useState(false);
@@ -193,7 +194,7 @@ export default function Settings() {
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           </button>
 
-          {role === "manager" && (
+          {canManageEmployees && (
             <>
               <button
                 onClick={() => setDeleteConfirmOpen(true)}

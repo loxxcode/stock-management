@@ -75,6 +75,12 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
+export const hasAnyRole = (currentRole: AppRole | null, allowedRoles: AppRole[]) =>
+  Boolean(currentRole && allowedRoles.includes(currentRole));
+
+export const isManagerOrAdmin = (currentRole: AppRole | null) =>
+  hasAnyRole(currentRole, ["manager", "admin"]);
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -86,8 +92,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchUserData = async (userId: string) => {
     try {
       const [profileRes, permRes] = await Promise.all([
-        supabase.from("profiles" as any).select("*").eq("user_id", userId).single(),
-        supabase.from("employee_permissions" as any).select("*").eq("employee_user_id", userId).single(),
+        supabase.from("profiles" as any).select("*").eq("user_id", userId).maybeSingle(),
+        supabase.from("employee_permissions" as any).select("*").eq("employee_user_id", userId).maybeSingle(),
       ]);
 
       if (profileRes.error && profileRes.error.code !== 'PGRST116') {
@@ -105,7 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .from("user_roles" as any)
         .select("role")
         .eq("user_id", userId)
-        .single() as any);
+        .maybeSingle() as any);
 
       if (roleError && roleError.code !== 'PGRST116') {
         console.error('Role fetch error:', roleError);

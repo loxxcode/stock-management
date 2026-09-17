@@ -1,7 +1,7 @@
 // Supabase-backed store hooks
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { getCreditStatus } from "@/lib/credit";
+import { getCreditStatus, getVisibleCreditUserIds } from "@/lib/credit";
 
 // Use the project's Supabase client (cast to any for tables not yet in generated types)
 const db = supabase as any;
@@ -271,53 +271,107 @@ export function useCustomerCredits() {
 
   const fetchCredits = useCallback(async () => {
     const userId = await getUserId();
-    if (!userId) return;
-    const { data } = await db
-      .from("customer_credits")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (data) {
-      setCredits(
-        data.map((r: any) => ({
-          id: r.id,
-          customerName: r.customer_name ?? "Unknown customer",
-          productName: r.product_name ?? "Product",
-          quantity: Number(r.quantity ?? 1),
-          amountDue: Number(r.amount_due ?? 0),
-          paidAmount: Number(r.paid_amount ?? 0),
-          status: (r.status as "open" | "partial" | "paid" | "completed") ?? "open",
-          date: r.date,
-          dueDate: r.due_date ?? r.date,
-          employeeName: r.employee_name ?? "Unknown",
-          note: r.note ?? "",
-        }))
-      );
+    if (!userId) {
+      setCredits([]);
+      setLoading(false);
+      return;
     }
-    setLoading(false);
+
+    try {
+      const { data: roleData } = await db.from("user_roles").select("role").eq("user_id", userId).maybeSingle();
+      const role = roleData?.role ?? "employee";
+
+      let visibilityUserIds: string[] | null = null;
+      if (role !== "admin") {
+        const { data: employeeLinks } = await db
+          .from("employee_permissions")
+          .select("manager_user_id, employee_user_id")
+          .or(`manager_user_id.eq.${userId},employee_user_id.eq.${userId}`);
+
+        visibilityUserIds = getVisibleCreditUserIds(userId, role, employeeLinks ?? []);
+      }
+
+      let query = db.from("customer_credits").select("*").order("created_at", { ascending: false });
+
+      if (visibilityUserIds && visibilityUserIds.length) {
+        query = query.in("user_id", visibilityUserIds);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        const missingTable = ["42P01", "42501", "406", "404"].includes(String(error.code ?? "")) || /does not exist|permission denied|relation .*customer_credits/i.test(error.message ?? "");
+        if (missingTable) {
+          console.warn("customer_credits table is not available yet:", error.message);
+          setCredits([]);
+          setLoading(false);
+          return;
+        }
+        console.error("Failed to fetch customer credits:", error);
+      }
+
+      if (data) {
+        setCredits(
+          data.map((r: any) => ({
+            id: r.id,
+            customerName: r.customer_name ?? "Unknown customer",
+            productName: r.product_name ?? "Product",
+            quantity: Number(r.quantity ?? 1),
+            amountDue: Number(r.amount_due ?? 0),
+            paidAmount: Number(r.paid_amount ?? 0),
+            status: (r.status as "open" | "partial" | "paid" | "completed") ?? "open",
+            date: r.date,
+            dueDate: r.due_date ?? r.date,
+            employeeName: r.employee_name ?? "Unknown",
+            note: r.note ?? "",
+          }))
+        );
+      }
+    } catch (error: any) {
+      console.warn("customer_credits unavailable:", error?.message ?? error);
+      setCredits([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const fetchCreditPayments = useCallback(async (creditId: string) => {
     const userId = await getUserId();
     if (!userId) return [] as CustomerCreditPayment[];
 
-    const { data } = await db
-      .from("customer_credit_payments")
-      .select("*")
-      .eq("credit_id", creditId)
-      .order("paid_on", { ascending: false });
+    try {
+      const { data, error } = await db
+        .from("customer_credit_payments")
+        .select("*")
+        .eq("credit_id", creditId)
+        .order("paid_on", { ascending: false });
 
-    const mapped = (data ?? []).map((r: any) => ({
-      id: r.id,
-      creditId: r.credit_id,
-      amount: Number(r.amount ?? 0),
-      paidOn: r.paid_on,
-      employeeName: r.employee_name ?? "Unknown",
-      note: r.note ?? "",
-    }));
+      if (error) {
+        const missingTable = ["42P01", "42501", "406", "404"].includes(String(error.code ?? "")) || /does not exist|permission denied|relation .*customer_credit_payments/i.test(error.message ?? "");
+        if (missingTable) {
+          console.warn("customer_credit_payments table is not available yet:", error.message);
+          setPaymentsByCredit((prev) => ({ ...prev, [creditId]: [] }));
+          return [] as CustomerCreditPayment[];
+        }
+        console.error("Failed to fetch customer credit payments:", error);
+      }
 
-    setPaymentsByCredit((prev) => ({ ...prev, [creditId]: mapped }));
-    return mapped;
+      const mapped = (data ?? []).map((r: any) => ({
+        id: r.id,
+        creditId: r.credit_id,
+        amount: Number(r.amount ?? 0),
+        paidOn: r.paid_on,
+        employeeName: r.employee_name ?? "Unknown",
+        note: r.note ?? "",
+      }));
+
+      setPaymentsByCredit((prev) => ({ ...prev, [creditId]: mapped }));
+      return mapped;
+    } catch (error: any) {
+      console.warn("customer_credit_payments unavailable:", error?.message ?? error);
+      setPaymentsByCredit((prev) => ({ ...prev, [creditId]: [] }));
+      return [] as CustomerCreditPayment[];
+    }
   }, []);
 
   useEffect(() => {

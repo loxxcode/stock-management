@@ -24,10 +24,11 @@ interface InvoiceItem {
 }
 
 export default function Stock() {
-  const { permissions } = useAuth();
+  const { permissions, role } = useAuth();
 
-  
-  if (permissions && !permissions.can_add_stock && !permissions.can_remove_stock) {
+  const canManageStock = role === "admin" || role === "manager" || Boolean(permissions?.can_add_stock || permissions?.can_remove_stock);
+
+  if (!canManageStock) {
     return <Navigate to="/" replace />;
   }
 

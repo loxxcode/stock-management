@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeCustomerCredits, getCreditStatus } from './credit';
+import { summarizeCustomerCredits, getCreditStatus, getVisibleCreditUserIds } from './credit';
+
+describe('getVisibleCreditUserIds', () => {
+  it('limits managers to their own and their employees\' records while admins see all', () => {
+    expect(getVisibleCreditUserIds('admin-user', 'admin', [])).toBeNull();
+    expect(getVisibleCreditUserIds('manager-user', 'manager', [
+      { manager_user_id: 'manager-user', employee_user_id: 'emp-1' },
+      { manager_user_id: 'manager-user', employee_user_id: 'emp-2' },
+      { manager_user_id: 'other-manager', employee_user_id: 'emp-3' },
+    ])).toEqual(['manager-user', 'emp-1', 'emp-2']);
+    expect(getVisibleCreditUserIds('emp-1', 'employee', [])).toEqual(['emp-1']);
+  });
+});
 
 describe('summarizeCustomerCredits', () => {
   it('adds up all outstanding credit balances', () => {

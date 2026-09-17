@@ -102,7 +102,7 @@ export default function Employees() {
   const [employeePerformance, setEmployeePerformance] = useState<Record<string, any>>({});
 
   useEffect(() => {
-    if (role !== "manager") return;
+    if (role !== "manager" && role !== "admin") return;
     fetchEmployees();
   }, [role]);
 
@@ -254,13 +254,17 @@ export default function Employees() {
 
     const permissionsData = uiToDbPermissions(fullAccess ? { ...FULL_ACCESS_PERMISSIONS } : { ...perms });
 
-    const { error: permError } = await (supabase.from("employee_permissions" as any) as any).insert({
-      employee_user_id: employeeUserId,
-      manager_user_id: user!.id,
-      ...permissionsData,
-    });
+    const { error: permError } = await (supabase.from("employee_permissions" as any) as any).upsert(
+      {
+        employee_user_id: employeeUserId,
+        manager_user_id: user!.id,
+        ...permissionsData,
+      },
+      { onConflict: "employee_user_id" }
+    );
 
     if (permError) {
+      console.error("Employee permission insert failed:", permError);
       toast.error("Account created but failed to set permissions: " + permError.message);
     } else {
       if (setupReady) {
@@ -307,12 +311,12 @@ export default function Employees() {
     }
   };
 
-  if (role !== "manager") {
+  if (role !== "manager" && role !== "admin") {
     return (
       <div className="pb-24">
         <PageHeader title="Employees" subtitle="Access restricted" />
         <div className="px-4 mt-8 text-center">
-          <p className="text-muted-foreground">Only managers can access this page.</p>
+          <p className="text-muted-foreground">Only managers and admins can access this page.</p>
         </div>
       </div>
     );

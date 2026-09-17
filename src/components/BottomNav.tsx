@@ -1,7 +1,7 @@
 import { LayoutDashboard, Package, ShoppingCart, Receipt, Users, BarChart3, Warehouse, Shield } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/contexts/AuthContext";
+import { isManagerOrAdmin, useAuth } from "@/contexts/AuthContext";
 
 const baseItems = [
   { icon: LayoutDashboard, label: "Home", path: "/" },
@@ -20,23 +20,31 @@ export default function BottomNav() {
   const hiddenPaths = ["/login", "/register"];
   if (hiddenPaths.includes(location.pathname)) return null;
 
-  const navItems = [
-    ...baseItems.filter(item => {
-      // Hide Reports if user doesn't have permission to view stock
-      if (item.label === "Reports" && permissions && !permissions.can_view_stock) {
-        return false;
-      }
-      return true;
-    }),
-    ...(role === "manager"
-      ? [
-          { icon: Users, label: "Employees", path: "/employees" },
-        ]
-      : []),
-    ...(role === "admin"
-      ? [{ icon: Shield, label: "Admin", path: "/admin" }]
-      : []),
-  ];
+  const filteredBaseItems = baseItems.filter(item => {
+    if (item.label === "Reports" && permissions && !permissions.can_view_stock) {
+      return false;
+    }
+    return true;
+  });
+
+  const navItems = role === "admin"
+    ? [
+        filteredBaseItems[0],
+        { icon: Shield, label: "Admin", path: "/admin" },
+        ...filteredBaseItems.slice(1),
+        ...(isManagerOrAdmin(role)
+          ? [{ icon: Users, label: "Employees", path: "/employees" }]
+          : []),
+      ]
+    : [
+        ...filteredBaseItems,
+        ...(isManagerOrAdmin(role)
+          ? [{ icon: Users, label: "Employees", path: "/employees" }]
+          : []),
+        ...(role === "admin"
+          ? [{ icon: Shield, label: "Admin", path: "/admin" }]
+          : []),
+      ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur-lg safe-area-bottom">

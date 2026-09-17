@@ -18,9 +18,9 @@ export default function Products() {
 
   const isAddingNew = dialogOpen && !editing;
 
-  const canAdd = role === "manager" || (permissions && permissions.can_add_product);
-  const canEdit = role === "manager" || (permissions && permissions.can_edit_product);
-  const canDelete = role === "manager" || (permissions && permissions.can_delete_product);
+  const canAdd = role === "admin" || role === "manager" || (permissions && permissions.can_add_product);
+  const canEdit = role === "admin" || role === "manager" || (permissions && permissions.can_edit_product);
+  const canDelete = role === "admin" || role === "manager" || (permissions && permissions.can_delete_product);
 
   const filtered = products.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase())
