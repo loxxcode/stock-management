@@ -109,7 +109,7 @@ export default function Reports() {
 
     const document = new jsPDF();
     document.setFontSize(18);
-    document.text("ICYIZERE BUSINESS - Loan Report", 14, 18);
+    document.text("STOCK MS - Loan Report", 14, 18);
     document.setFontSize(10);
     document.text(`Client: ${loanClientSearch.trim() || "All clients"}`, 14, 27);
     document.text(`Date: ${loanReportDate || "All dates"}`, 14, 34);
@@ -150,7 +150,7 @@ export default function Reports() {
     };
 
     document.setFontSize(20);
-    document.text("ICYIZERE BUSINESS", 14, y);
+    document.text("STOCK MS", 14, y);
     y += 8;
     document.setFontSize(14);
     document.text(`${periodLabel[period]} Financial Report`, 14, y);
@@ -192,7 +192,7 @@ export default function Reports() {
     });
     if (filtered.credits.length === 0) addLine("No loan transactions in this period.");
 
-    document.save(`icyizere-${period}-report-${reportDate}.pdf`);
+    document.save(`STOCK MS-${period}-report-${reportDate}.pdf`);
   };
 
   const periodLabel: Record<Period, string> = {

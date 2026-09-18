@@ -103,5 +103,10 @@
 
   body {
     @apply bg-background text-foreground;
+    background-image: radial-gradient(circle at top, hsl(var(--primary) / 0.06), transparent 35%);
+  }
+
+  #root {
+    @apply min-h-screen;
   }
 }

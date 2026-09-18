@@ -26,7 +26,7 @@ export default function Dashboard() {
   return (
     <div className="pb-24">
       <PageHeader
-        title={isAdmin ? "Admin Dashboard" : "ICYIZERE-BUSINESS"}
+        title={isAdmin ? "Admin Dashboard" : "STOCK MANAGEMNT"}
         subtitle={isAdmin ? "Business control center" : "Today's Overview"}
         showNotification
       />
