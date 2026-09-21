@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getCreditStatus, getVisibleCreditUserIds } from "@/lib/credit";
+import type { AppRole } from "@/contexts/AuthContext";
 
 // Use the project's Supabase client (cast to any for tables not yet in generated types)
 const db = supabase as any;
@@ -77,11 +78,47 @@ async function getUserId(): Promise<string | null> {
   return data.user?.id ?? null;
 }
 
+async function getUserRole(): Promise<AppRole | null> {
+  const userId = await getUserId();
+  if (!userId) return null;
+  const { data } = await db.from("user_roles").select("role").eq("user_id", userId).maybeSingle();
+  return data?.role as AppRole ?? null;
+}
+
 async function getUserFullName(): Promise<string | null> {
   const userId = await getUserId();
   if (!userId) return null;
   const { data } = await db.from("profiles").select("full_name").eq("user_id", userId).single();
   return data?.full_name ?? null;
+}
+
+// Audit logging function
+async function logAuditEvent(
+  action: string,
+  entity: string | null = null,
+  entityId: string | null = null,
+  oldValue: any = null,
+  newValue: any = null,
+  description: string | null = null
+) {
+  const userId = await getUserId();
+  const role = await getUserRole();
+  if (!userId || !role) return;
+
+  try {
+    await db.rpc('log_audit_event', {
+      p_user_id: userId,
+      p_user_role: role,
+      p_action: action,
+      p_entity: entity,
+      p_entity_id: entityId,
+      p_old_value: oldValue,
+      p_new_value: newValue,
+      p_description: description
+    });
+  } catch (error) {
+    console.error('Failed to log audit event:', error);
+  }
 }
 
 // ---------- useProducts ----------
@@ -91,48 +128,71 @@ export function useProducts() {
   const [loading, setLoading] = useState(true);
 
   const fetchProducts = useCallback(async () => {
-    const userId = await getUserId();
-    if (!userId) {
+    try {
+      const userId = await getUserId();
+      const role = await getUserRole();
+      if (!userId) {
+        setProducts([]);
+        setLoading(false);
+        return;
+      }
+
+      // Single query for all roles - admin can see all product data
+      const { data, error } = await db
+        .from("products")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error('Error fetching products:', error);
+        setProducts([]);
+      } else if (data) {
+        setProducts(
+          data.map((r: any) => ({
+            id: r.id,
+            name: r.name,
+            price: Number(r.price),
+            stock: Number(r.stock),
+            category: r.category ?? "General",
+            minStock: Number(r.min_stock ?? 10),
+          }))
+        );
+      }
+    } catch (error) {
+      console.error('Error in fetchProducts:', error);
       setProducts([]);
+    } finally {
       setLoading(false);
-      return;
     }
-    const { data } = await db
-      .from("products")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (data) {
-      setProducts(
-        data.map((r: any) => ({
-          id: r.id,
-          name: r.name,
-          price: Number(r.price),
-          stock: Number(r.stock),
-          category: r.category ?? "General",
-          minStock: Number(r.min_stock ?? 10),
-        }))
-      );
-    }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
     fetchProducts();
 
     const { data: authListener } = db.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+      if (isMounted && (event === 'SIGNED_IN' || event === 'SIGNED_OUT')) {
         fetchProducts();
       }
     });
 
     return () => {
+      isMounted = false;
       authListener.subscription.unsubscribe();
     };
   }, [fetchProducts]);
 
   const addProduct = async (p: Omit<Product, "id">) => {
     const userId = await getUserId();
+    const role = await getUserRole();
     if (!userId) return;
+    
+    // Only managers can add products
+    if (role !== 'manager') {
+      console.error('Only managers can add products');
+      return;
+    }
+
     const { data, error } = await db
       .from("products")
       .insert({
@@ -146,6 +206,7 @@ export function useProducts() {
       .select()
       .single();
     if (!error && data) {
+      await logAuditEvent('create', 'product', data.id, null, data, `Created product: ${data.name}`);
       setProducts((prev) => [
         {
           id: data.id,
@@ -161,6 +222,16 @@ export function useProducts() {
   };
 
   const updateProduct = async (id: string, p: Partial<Product>) => {
+    const userId = await getUserId();
+    const role = await getUserRole();
+    if (!userId) return;
+    
+    // Only managers can update products
+    if (role !== 'manager') {
+      console.error('Only managers can update products');
+      return;
+    }
+
     const updates: any = {};
     if (p.name !== undefined) updates.name = p.name;
     if (p.price !== undefined) updates.price = p.price;
@@ -170,6 +241,7 @@ export function useProducts() {
 
     const { error } = await db.from("products").update(updates).eq("id", id);
     if (!error) {
+      await logAuditEvent('update', 'product', id, null, updates, `Updated product: ${id}`);
       setProducts((prev) =>
         prev.map((item) => (item.id === id ? { ...item, ...p } : item))
       );
@@ -177,8 +249,19 @@ export function useProducts() {
   };
 
   const deleteProduct = async (id: string) => {
+    const userId = await getUserId();
+    const role = await getUserRole();
+    if (!userId) return;
+    
+    // Only managers can delete products
+    if (role !== 'manager') {
+      console.error('Only managers can delete products');
+      return;
+    }
+
     const { error } = await db.from("products").delete().eq("id", id);
     if (!error) {
+      await logAuditEvent('delete', 'product', id, null, null, `Deleted product: ${id}`);
       setProducts((prev) => prev.filter((item) => item.id !== id));
     }
   };
@@ -193,39 +276,84 @@ export function useSales() {
   const [loading, setLoading] = useState(true);
 
   const fetchSales = useCallback(async () => {
-    const userId = await getUserId();
-    if (!userId) return;
-    const { data } = await db
-      .from("sales")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (data) {
-      setSales(
-        data.map((r: any) => ({
-          id: r.id,
-          productId: r.product_id,
-          productName: r.product_name,
-          quantity: Number(r.quantity ?? 1),
-          total: Number(r.total ?? 0),
-          date: r.date,
-          employeeName: r.employee_name ?? "Unknown",
-          source: (r.source as "sale" | "loan_payment") ?? "sale",
-          customerName: r.customer_name ?? undefined,
-        }))
-      );
+    try {
+      const userId = await getUserId();
+      const role = await getUserRole();
+      if (!userId) {
+        setSales([]);
+        setLoading(false);
+        return;
+      }
+
+      let query = db.from("sales").select("*").order("created_at", { ascending: false });
+
+      // Employees only see their own sales
+      if (role === 'employee') {
+        query = query.eq("employee_id", userId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error fetching sales:', error);
+        setSales([]);
+      } else if (data) {
+        setSales(
+          data.map((r: any) => ({
+            id: r.id,
+            productId: r.product_id,
+            productName: r.product_name,
+            quantity: Number(r.quantity ?? 1),
+            total: Number(r.total ?? 0),
+            date: r.date,
+            employeeName: r.employee_name ?? "Unknown",
+            source: (r.source as "sale" | "loan_payment") ?? "sale",
+            customerName: r.customer_name ?? undefined,
+          }))
+        );
+      }
+    } catch (error) {
+      console.error('Error in fetchSales:', error);
+      setSales([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
     fetchSales();
+
+    return () => {
+      isMounted = false;
+    };
   }, [fetchSales]);
 
   const addSale = async (s: Omit<Sale, "id">) => {
     const userId = await getUserId();
+    const role = await getUserRole();
     if (!userId) return;
+    
+    // Admin cannot create sales
+    if (role === 'admin') {
+      console.error('Admins cannot create sales');
+      return;
+    }
+
     const fullName = s.employeeName || (await getUserFullName()) || "Unknown";
     const source = s.source ?? "sale";
+    
+    // Get manager_id if employee
+    let managerId = null;
+    if (role === 'employee') {
+      const { data: permData } = await db
+        .from("employee_permissions")
+        .select("manager_user_id")
+        .eq("employee_user_id", userId)
+        .maybeSingle();
+      managerId = permData?.manager_user_id || null;
+    }
+
     const { data, error } = await db
       .from("sales")
       .insert({
@@ -235,6 +363,8 @@ export function useSales() {
         total: s.total,
         date: s.date,
         employee_name: fullName,
+        employee_id: userId,
+        manager_id: managerId,
         source,
         customer_name: s.customerName ?? null,
         user_id: userId,
@@ -242,6 +372,7 @@ export function useSales() {
       .select()
       .single();
     if (!error && data) {
+      await logAuditEvent('create', 'sale', data.id, null, data, `Created sale: ${data.product_name}`);
       setSales((prev) => [
         {
           id: data.id,
@@ -375,7 +506,12 @@ export function useCustomerCredits() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
     fetchCredits();
+
+    return () => {
+      isMounted = false;
+    };
   }, [fetchCredits]);
 
   const addCustomerCredit = async (c: Omit<CustomerCredit, "id" | "status" | "paidAmount" > & { paidAmount?: number; status?: "open" | "partial" | "paid" }) => {
@@ -547,33 +683,76 @@ export function useExpenses() {
   const [loading, setLoading] = useState(true);
 
   const fetchExpenses = useCallback(async () => {
-    const userId = await getUserId();
-    if (!userId) return;
-    const { data } = await db
-      .from("expenses")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (data) {
-      setExpenses(
-        data.map((r: any) => ({
-          id: r.id,
-          category: r.category,
-          amount: Number(r.amount),
-          description: r.description ?? "",
-          date: r.date,
-        }))
-      );
+    try {
+      const userId = await getUserId();
+      const role = await getUserRole();
+      if (!userId) {
+        setExpenses([]);
+        setLoading(false);
+        return;
+      }
+
+      // Managers, admins, and employees can view expenses
+      if (role !== 'manager' && role !== 'admin' && role !== 'employee') {
+        setExpenses([]);
+        setLoading(false);
+        return;
+      }
+
+      const { data, error } = await db
+        .from("expenses")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error('Error fetching expenses:', error);
+        setExpenses([]);
+      } else if (data) {
+        setExpenses(
+          data.map((r: any) => ({
+            id: r.id,
+            category: r.category,
+            amount: Number(r.amount),
+            description: r.description ?? "",
+            date: r.date,
+          }))
+        );
+      }
+    } catch (error) {
+      console.error('Error in fetchExpenses:', error);
+      setExpenses([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
     fetchExpenses();
+
+    const { data: authListener } = db.auth.onAuthStateChange((event, session) => {
+      if (isMounted && (event === 'SIGNED_IN' || event === 'SIGNED_OUT')) {
+        fetchExpenses();
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      authListener.subscription.unsubscribe();
+    };
   }, [fetchExpenses]);
 
   const addExpense = async (e: Omit<Expense, "id">) => {
     const userId = await getUserId();
+    const role = await getUserRole();
     if (!userId) return;
+
+    // Managers and employees can add expenses
+    if (role !== 'manager' && role !== 'employee') {
+      console.error('Only managers and employees can add expenses');
+      return;
+    }
+
     const { data, error } = await db
       .from("expenses")
       .insert({
@@ -586,6 +765,7 @@ export function useExpenses() {
       .select()
       .single();
     if (!error && data) {
+      await logAuditEvent('create', 'expense', data.id, null, data, `Created expense: ${data.category}`);
       setExpenses((prev) => [
         {
           id: data.id,
@@ -599,7 +779,89 @@ export function useExpenses() {
     }
   };
 
-  return { expenses, addExpense, loading };
+  const updateExpense = async (id: string, e: Omit<Expense, "id">) => {
+    const userId = await getUserId();
+    const role = await getUserRole();
+    if (!userId) return;
+
+    // Only managers can update expenses
+    if (role !== 'manager') {
+      console.error('Only managers can update expenses');
+      return;
+    }
+
+    console.log('Updating expense:', id, e);
+    const { data, error } = await db
+      .from("expenses")
+      .update({
+        category: e.category,
+        amount: e.amount,
+        description: e.description,
+        date: e.date,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating expense:', error);
+      return;
+    }
+
+    if (data) {
+      console.log('Expense updated successfully:', data);
+      await logAuditEvent('update', 'expense', data.id, null, data, `Updated expense: ${data.category}`);
+      setExpenses((prev) =>
+        prev.map((expense) =>
+          expense.id === id
+            ? {
+                id: data.id,
+                category: data.category,
+                amount: Number(data.amount),
+                description: data.description ?? "",
+                date: data.date,
+              }
+            : expense
+        )
+      );
+    }
+  };
+
+  const deleteExpense = async (id: string) => {
+    const userId = await getUserId();
+    const role = await getUserRole();
+    if (!userId) return;
+
+    // Only managers can delete expenses
+    if (role !== 'manager') {
+      console.error('Only managers can delete expenses');
+      return;
+    }
+
+    console.log('Deleting expense:', id);
+    const { data, error } = await db
+      .from("expenses")
+      .delete()
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error deleting expense:', error);
+      return;
+    }
+
+    if (data) {
+      console.log('Expense deleted successfully:', data);
+      await logAuditEvent('delete', 'expense', id, data, null, `Deleted expense: ${data.category}`);
+      setExpenses((prev) => prev.filter((expense) => expense.id !== id));
+    } else {
+      console.log('No data returned from delete, but no error. Removing from local state.');
+      setExpenses((prev) => prev.filter((expense) => expense.id !== id));
+    }
+  };
+
+  return { expenses, addExpense, updateExpense, deleteExpense, loading };
 }
 
 // ---------- useStockEntries ----------
@@ -609,35 +871,71 @@ export function useStockEntries() {
   const [loading, setLoading] = useState(true);
 
   const fetchEntries = useCallback(async () => {
-    const userId = await getUserId();
-    if (!userId) return;
-    const { data } = await db
-      .from("stock_entries")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (data) {
-      setEntries(
-        data.map((r: any) => ({
-          id: r.id,
-          productId: r.product_id,
-          productName: r.product_name,
-          type: r.type as "in" | "out",
-          quantity: Number(r.quantity),
-          date: r.date,
-          note: r.note ?? "",
-        }))
-      );
+    try {
+      const userId = await getUserId();
+      const role = await getUserRole();
+      if (!userId) {
+        setEntries([]);
+        setLoading(false);
+        return;
+      }
+
+      // Admin and managers can view stock entries
+      if (role !== 'manager' && role !== 'admin') {
+        setEntries([]);
+        setLoading(false);
+        return;
+      }
+
+      const { data, error } = await db
+        .from("stock_entries")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error('Error fetching stock entries:', error);
+        setEntries([]);
+      } else if (data) {
+        setEntries(
+          data.map((r: any) => ({
+            id: r.id,
+            productId: r.product_id,
+            productName: r.product_name,
+            type: r.type as "in" | "out",
+            quantity: Number(r.quantity),
+            date: r.date,
+            note: r.note ?? "",
+          }))
+        );
+      }
+    } catch (error) {
+      console.error('Error in fetchEntries:', error);
+      setEntries([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
     fetchEntries();
+
+    return () => {
+      isMounted = false;
+    };
   }, [fetchEntries]);
 
   const addEntry = async (e: Omit<StockEntry, "id">) => {
     const userId = await getUserId();
+    const role = await getUserRole();
     if (!userId) return;
+    
+    // Only managers can add stock entries
+    if (role !== 'manager') {
+      console.error('Only managers can add stock entries');
+      return;
+    }
+
     const { data, error } = await db
       .from("stock_entries")
       .insert({
@@ -652,6 +950,7 @@ export function useStockEntries() {
       .select()
       .single();
     if (!error && data) {
+      await logAuditEvent('create', 'stock_entry', data.id, null, data, `Created stock entry: ${e.type}`);
       setEntries((prev) => [
         {
           id: data.id,

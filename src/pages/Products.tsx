@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Plus, Search, Pencil, Trash2, Package } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Package, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import PageHeader from "@/components/PageHeader";
 import { useProducts, Product } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,9 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [duplicateProduct, setDuplicateProduct] = useState<Product | null>(null);
+  const [pendingData, setPendingData] = useState<any>(null);
 
   const isAddingNew = dialogOpen && !editing;
 
@@ -38,12 +41,52 @@ export default function Products() {
     };
 
     if (editing) {
-      updateProduct(editing.id, data);
+      // Add new stock to existing stock instead of replacing
+      const updatedData = {
+        ...data,
+        stock: editing.stock + data.stock
+      };
+      updateProduct(editing.id, updatedData);
+      setEditing(null);
+      setDialogOpen(false);
     } else {
-      addProduct(data);
+      // Check if product with same name already exists
+      const existingProduct = products.find(p => 
+        p.name.toLowerCase() === data.name.toLowerCase()
+      );
+
+      if (existingProduct) {
+        // Product exists, show confirmation dialog
+        setDuplicateProduct(existingProduct);
+        setPendingData(data);
+        setConfirmDialogOpen(true);
+      } else {
+        // New product, add it
+        addProduct(data);
+        setDialogOpen(false);
+      }
     }
-    setEditing(null);
-    setDialogOpen(false);
+  };
+
+  const handleUpdateExisting = () => {
+    if (duplicateProduct && pendingData) {
+      // Add new stock to existing stock instead of replacing
+      const updatedData = {
+        ...pendingData,
+        stock: duplicateProduct.stock + pendingData.stock
+      };
+      updateProduct(duplicateProduct.id, updatedData);
+      setDuplicateProduct(null);
+      setPendingData(null);
+      setConfirmDialogOpen(false);
+      setDialogOpen(false);
+    }
+  };
+
+  const handleCancelDuplicate = () => {
+    setDuplicateProduct(null);
+    setPendingData(null);
+    setConfirmDialogOpen(false);
   };
 
   return (
@@ -89,6 +132,47 @@ export default function Products() {
               </DialogContent>
             </Dialog>
           )}
+
+          {/* Confirmation Dialog for Duplicate Product */}
+          <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+            <DialogContent className="max-w-[90vw] rounded-2xl">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-destructive" />
+                  Product Already Exists
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  A product named <span className="font-semibold text-foreground">{duplicateProduct?.name}</span> already exists.
+                </p>
+                <div className="p-3 bg-secondary rounded-lg space-y-1">
+                  <p className="text-xs text-muted-foreground">Current details:</p>
+                  <p className="text-sm">Price: RWF {duplicateProduct?.price.toLocaleString()}</p>
+                  <p className="text-sm">Stock: {duplicateProduct?.stock}</p>
+                  <p className="text-sm">Category: {duplicateProduct?.category}</p>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Would you like to update the existing product with the new details?
+                </p>
+              </div>
+              <DialogFooter className="gap-2">
+                <Button 
+                  variant="outline" 
+                  onClick={handleCancelDuplicate}
+                  className="flex-1"
+                >
+                  Change Name
+                </Button>
+                <Button 
+                  onClick={handleUpdateExisting}
+                  className="flex-1 bg-primary text-primary-foreground"
+                >
+                  Update Existing
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Product List */}

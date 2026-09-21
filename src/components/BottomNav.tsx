@@ -1,50 +1,53 @@
-import { LayoutDashboard, Package, ShoppingCart, Receipt, Users, BarChart3, Warehouse, Shield } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, Receipt, Users, BarChart3, Warehouse, Shield, Activity, FileText, Bell, Settings } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { isManagerOrAdmin, useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
+import Expenses from "@/pages/Expenses";
 
-const baseItems = [
-  { icon: LayoutDashboard, label: "Home", path: "/" },
+// Admin navigation - system monitoring only
+const adminNavItems = [
+  { icon: LayoutDashboard, label: "Dashboard", path: "/admin/dashboard" },
+  { icon: Shield, label: "Users", path: "/admin" },
+  { icon: Activity, label: "Activity", path: "/admin/activity" },
+  { icon: FileText, label: "Audit", path: "/admin/audit" },
+  { icon: Bell, label: "Notify", path: "/notifications" },
+  { icon: Settings, label: "Settings", path: "/admin/settings" },
+];
+
+// Manager navigation - full business access
+const managerNavItems = [
+  { icon: LayoutDashboard, label: "Dashboard", path: "/manager/dashboard" },
   { icon: Package, label: "Products", path: "/products" },
+  { icon: Warehouse, label: "Stock", path: "/stock" },
   { icon: ShoppingCart, label: "Sales", path: "/sales" },
   { icon: Receipt, label: "Expenses", path: "/expenses" },
-  { icon: Warehouse, label: "Stock", path: "/stock" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
+  { icon: Users, label: "Employees", path: "/employees" },
+];
+
+// Employee navigation - limited operational access
+const employeeNavItems = [
+  { icon: LayoutDashboard, label: "Dashboard", path: "/employee/dashboard" },
+  { icon: ShoppingCart, label: "Sales", path: "/sales" },
+  { icon: Receipt, label: "Expenses", path: "/expenses" },
+  { icon: Activity, label: "Activity", path: "/my-activity" },
+  { icon: Bell, label: "Notify", path: "/notifications" },
 ];
 
 export default function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { role, permissions } = useAuth();
+  const { role } = useAuth();
 
   const hiddenPaths = ["/login", "/register"];
   if (hiddenPaths.includes(location.pathname)) return null;
 
-  const filteredBaseItems = baseItems.filter(item => {
-    if (item.label === "Reports" && permissions && !permissions.can_view_stock) {
-      return false;
-    }
-    return true;
-  });
-
+  // Get navigation items based on role (same as sidebar)
   const navItems = role === "admin"
-    ? [
-        filteredBaseItems[0],
-        { icon: Shield, label: "Admin", path: "/admin" },
-        ...filteredBaseItems.slice(1),
-        ...(isManagerOrAdmin(role)
-          ? [{ icon: Users, label: "Employees", path: "/employees" }]
-          : []),
-      ]
-    : [
-        ...filteredBaseItems,
-        ...(isManagerOrAdmin(role)
-          ? [{ icon: Users, label: "Employees", path: "/employees" }]
-          : []),
-        ...(role === "admin"
-          ? [{ icon: Shield, label: "Admin", path: "/admin" }]
-          : []),
-      ];
+    ? adminNavItems
+    : role === "manager"
+      ? managerNavItems
+      : employeeNavItems;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur-lg safe-area-bottom lg:hidden">
