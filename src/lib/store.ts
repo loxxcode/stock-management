@@ -92,6 +92,34 @@ async function getUserFullName(): Promise<string | null> {
   return data?.full_name ?? null;
 }
 
+// Employee permission checking functions
+async function getEmployeePermissions(userId: string) {
+  const { data } = await db
+    .from("employee_permissions")
+    .select("*")
+    .eq("employee_user_id", userId)
+    .maybeSingle();
+  return data;
+}
+
+async function hasPermission(permission: string): Promise<boolean> {
+  const userId = await getUserId();
+  const role = await getUserRole();
+  if (!userId || !role) return false;
+  
+  // Managers and admins have all permissions
+  if (role === 'manager' || role === 'admin') return true;
+  
+  // Check specific permission for employees
+  if (role === 'employee') {
+    const perms = await getEmployeePermissions(userId);
+    if (!perms) return false;
+    return perms[permission] === true;
+  }
+  
+  return false;
+}
+
 // Audit logging function
 async function logAuditEvent(
   action: string,
@@ -132,6 +160,14 @@ export function useProducts() {
       const userId = await getUserId();
       const role = await getUserRole();
       if (!userId) {
+        setProducts([]);
+        setLoading(false);
+        return;
+      }
+
+      // Check permission for viewing products
+      const canView = await hasPermission('can_view_products');
+      if (!canView) {
         setProducts([]);
         setLoading(false);
         return;
@@ -187,9 +223,10 @@ export function useProducts() {
     const role = await getUserRole();
     if (!userId) return;
     
-    // Only managers can add products
-    if (role !== 'manager') {
-      console.error('Only managers can add products');
+    // Check permission for adding products
+    const canAdd = await hasPermission('can_add_product');
+    if (!canAdd) {
+      console.error('Permission denied: cannot add products');
       return;
     }
 
@@ -226,9 +263,10 @@ export function useProducts() {
     const role = await getUserRole();
     if (!userId) return;
     
-    // Only managers can update products
-    if (role !== 'manager') {
-      console.error('Only managers can update products');
+    // Check permission for editing products
+    const canEdit = await hasPermission('can_edit_product');
+    if (!canEdit) {
+      console.error('Permission denied: cannot edit products');
       return;
     }
 
@@ -253,9 +291,10 @@ export function useProducts() {
     const role = await getUserRole();
     if (!userId) return;
     
-    // Only managers can delete products
-    if (role !== 'manager') {
-      console.error('Only managers can delete products');
+    // Check permission for deleting products
+    const canDelete = await hasPermission('can_delete_product');
+    if (!canDelete) {
+      console.error('Permission denied: cannot delete products');
       return;
     }
 
@@ -280,6 +319,14 @@ export function useSales() {
       const userId = await getUserId();
       const role = await getUserRole();
       if (!userId) {
+        setSales([]);
+        setLoading(false);
+        return;
+      }
+
+      // Check permission for viewing sales
+      const canView = await hasPermission('can_view_sales');
+      if (!canView) {
         setSales([]);
         setLoading(false);
         return;
@@ -334,9 +381,10 @@ export function useSales() {
     const role = await getUserRole();
     if (!userId) return;
     
-    // Admin cannot create sales
-    if (role === 'admin') {
-      console.error('Admins cannot create sales');
+    // Check permission for recording sales
+    const canRecord = await hasPermission('can_record_sales');
+    if (!canRecord) {
+      console.error('Permission denied: cannot record sales');
       return;
     }
 
@@ -692,8 +740,9 @@ export function useExpenses() {
         return;
       }
 
-      // Managers, admins, and employees can view expenses
-      if (role !== 'manager' && role !== 'admin' && role !== 'employee') {
+      // Check permission for viewing expenses
+      const canView = await hasPermission('can_view_expenses');
+      if (!canView) {
         setExpenses([]);
         setLoading(false);
         return;
@@ -747,9 +796,10 @@ export function useExpenses() {
     const role = await getUserRole();
     if (!userId) return;
 
-    // Managers and employees can add expenses
-    if (role !== 'manager' && role !== 'employee') {
-      console.error('Only managers and employees can add expenses');
+    // Check permission for adding expenses
+    const canAdd = await hasPermission('can_add_expenses');
+    if (!canAdd) {
+      console.error('Permission denied: cannot add expenses');
       return;
     }
 
@@ -880,8 +930,9 @@ export function useStockEntries() {
         return;
       }
 
-      // Admin and managers can view stock entries
-      if (role !== 'manager' && role !== 'admin') {
+      // Check permission for viewing stock
+      const canView = await hasPermission('can_view_stock');
+      if (!canView) {
         setEntries([]);
         setLoading(false);
         return;
@@ -930,9 +981,11 @@ export function useStockEntries() {
     const role = await getUserRole();
     if (!userId) return;
     
-    // Only managers can add stock entries
-    if (role !== 'manager') {
-      console.error('Only managers can add stock entries');
+    // Check permission based on stock entry type
+    const permission = e.type === 'in' ? 'can_add_stock' : 'can_remove_stock';
+    const canModify = await hasPermission(permission);
+    if (!canModify) {
+      console.error(`Permission denied: cannot ${e.type === 'in' ? 'add' : 'remove'} stock`);
       return;
     }
 

@@ -392,7 +392,7 @@ export default function Sales() {
                 const outstanding = Math.max(0, credit.amountDue - credit.paidAmount);
 
                 return (
-                  <div key={credit.id} className="flex items-start gap-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
+                  <div key={credit.id} onClick={() => openCustomerDetail(credit)} className="flex items-start gap-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5 cursor-pointer">
                     <div className="p-2 rounded-lg bg-amber-500/10">
                       <HandCoins className="h-4 w-4 text-amber-600" />
                     </div>
