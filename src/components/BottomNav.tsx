@@ -42,6 +42,35 @@ export default function BottomNav() {
   const hiddenPaths = ["/login", "/register"];
   if (hiddenPaths.includes(location.pathname)) return null;
 
+  const filteredBaseItems = baseItems.filter(item => {
+    if (item.label === "Reports" && permissions && !permissions.can_view_stock) {
+      return false;
+    }
+    if (role === "admin" && ["Products", "Sales", "Expenses"].includes(item.label)) {
+      return false;
+    }
+    return true;
+  });
+
+  const navItems = role === "admin"
+    ? [
+        filteredBaseItems[0],
+        { icon: Shield, label: "Admin", path: "/admin" },
+        ...filteredBaseItems.filter(item => item.path !== "/").slice(0, 3),
+        ...(isManagerOrAdmin(role)
+          ? [{ icon: Users, label: "Employees", path: "/employees" }]
+          : []),
+      ]
+    : [
+        ...filteredBaseItems,
+        ...(isManagerOrAdmin(role)
+          ? [{ icon: Users, label: "Employees", path: "/employees" }]
+          : []),
+        ...(role === "admin"
+          ? [{ icon: Shield, label: "Admin", path: "/admin" }]
+          : []),
+      ];
+
   // Get navigation items based on role (same as sidebar)
   const navItems = role === "admin"
     ? adminNavItems

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, TrendingUp, DollarSign, ShoppingCart, Activity, Calendar, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -30,17 +30,22 @@ export default function EmployeePerformance() {
   const [period, setPeriod] = useState<Period>("month");
   const [performanceData, setPerformanceData] = useState({
     totalSales: 0,
+    selectedDateSales: 0,
     salesCount: 0,
     averageSale: 0,
     activityCount: 0,
     topProducts: [] as { name: string; count: number; total: number }[],
     dailySales: [] as { date: string; total: number; count: number }[],
   });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedDate, setSelectedDate] = useState(
+    searchParams.get("date") || new Date().toISOString().split("T")[0]
+  );
 
   useEffect(() => {
     if (!employeeId || (role !== "manager" && role !== "admin")) return;
     fetchEmployeeData();
-  }, [employeeId, period, role]);
+  }, [employeeId, period, selectedDate, role]);
 
   const fetchEmployeeData = async () => {
     // Get employee name
@@ -87,6 +92,12 @@ export default function EmployeePerformance() {
       .eq("user_id", employeeId!)
       .gte("created_at", start ? start.toISOString() : "0000-01-01T00:00:00Z");
 
+    const { data: selectedDateSalesData } = await (supabase
+      .from("sales" as any) as any)
+      .select("total")
+      .eq("user_id", employeeId!)
+      .eq("date", selectedDate);
+
     const activities = activityData || [];
 
     // Calculate metrics
@@ -126,6 +137,7 @@ export default function EmployeePerformance() {
 
     setPerformanceData({
       totalSales,
+      selectedDateSales: (selectedDateSalesData || []).reduce((sum: number, sale: any) => sum + Number(sale.total || 0), 0),
       salesCount,
       averageSale,
       activityCount,
@@ -182,6 +194,23 @@ export default function EmployeePerformance() {
           </SelectContent>
         </Select>
 
+        <div className="rounded-xl border border-border bg-card p-4">
+          <label htmlFor="performance-sales-date" className="mb-2 block text-sm font-medium text-foreground">
+            Sales date
+          </label>
+          <input
+            id="performance-sales-date"
+            type="date"
+            value={selectedDate}
+            onChange={(event) => {
+              const nextDate = event.target.value;
+              setSelectedDate(nextDate);
+              setSearchParams({ date: nextDate });
+            }}
+            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+          />
+        </div>
+
         {/* Performance Stats */}
         <div className="grid grid-cols-2 gap-3">
           <StatCard
@@ -195,6 +224,13 @@ export default function EmployeePerformance() {
             title="Transactions"
             value={performanceData.salesCount.toString()}
             icon={ShoppingCart}
+            compact
+          />
+          <StatCard
+            title={`Sales on ${selectedDate}`}
+            value={`RWF ${performanceData.selectedDateSales.toLocaleString()}`}
+            icon={Calendar}
+            variant="accent"
             compact
           />
           <StatCard

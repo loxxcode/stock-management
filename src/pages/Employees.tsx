@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { UserPlus, Users, Shield, Eye, ChevronRight, Trash2, Search, TrendingUp, Activity } from "lucide-react";
+import { UserPlus, Users, Shield, Trash2, Search, TrendingUp, Activity, Package, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,16 @@ interface EmployeeWithProfile {
   can_edit_product: boolean;
   can_delete_product: boolean;
   can_add_expenses: boolean;
+}
+
+interface ManagerSummary {
+  user_id: string;
+  full_name: string;
+  employeeCount: number;
+  salesToday: number;
+  sales30d: number;
+  stockUnits: number;
+  activityCount: number;
 }
 
 const PERMISSION_LABELS: Record<string, string> = {
@@ -93,6 +103,7 @@ export default function Employees() {
   const { user, role } = useAuth();
   const navigate = useNavigate();
   const [employees, setEmployees] = useState<EmployeeWithProfile[]>([]);
+  const [managers, setManagers] = useState<ManagerSummary[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [permOpen, setPermOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -100,9 +111,16 @@ export default function Employees() {
   const [perms, setPerms] = useState({ ...FULL_ACCESS_PERMISSIONS });
   const [searchQuery, setSearchQuery] = useState("");
   const [employeePerformance, setEmployeePerformance] = useState<Record<string, any>>({});
+  const [managerSearchQuery, setManagerSearchQuery] = useState("");
+
+  const isAdminView = role === "admin";
 
   useEffect(() => {
     if (role !== "manager" && role !== "admin") return;
+    if (role === "admin") {
+      fetchManagers();
+      return;
+    }
     fetchEmployees();
   }, [role]);
 
@@ -136,22 +154,69 @@ export default function Employees() {
     });
 
     setEmployees(result);
-    // Fetch performance data for all employees
     fetchEmployeePerformance(result);
+  };
+
+  const fetchManagers = async () => {
+    const today = new Date().toISOString().split("T")[0];
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+    const [{ data: managerRoles }, { data: profiles }, { data: permissions }, { data: products }, { data: sales30d }, { data: salesToday }] = await Promise.all([
+      (supabase.from("user_roles" as any) as any).select("user_id").eq("role", "manager"),
+      (supabase.from("profiles" as any) as any).select("user_id, full_name"),
+      (supabase.from("employee_permissions" as any) as any).select("manager_user_id, employee_user_id"),
+      (supabase.from("products" as any) as any).select("user_id, stock"),
+      (supabase.from("sales" as any) as any).select("user_id, total").gte("date", thirtyDaysAgo),
+      (supabase.from("sales" as any) as any).select("user_id, total").eq("date", today),
+    ]);
+
+    const profileMap = new Map((profiles || []).map((profile: any) => [profile.user_id, profile.full_name || "Manager"]));
+    const employeeCounts = new Map<string, number>();
+    (permissions || []).forEach((item: any) => {
+      const managerId = item.manager_user_id;
+      employeeCounts.set(managerId, (employeeCounts.get(managerId) || 0) + 1);
+    });
+
+    const stockByManager = new Map<string, number>();
+    (products || []).forEach((product: any) => {
+      const userId = product.user_id;
+      if (!userId) return;
+      stockByManager.set(userId, (stockByManager.get(userId) || 0) + Number(product.stock || 0));
+    });
+
+    const sales30dByManager = new Map<string, number>();
+    (sales30d || []).forEach((sale: any) => {
+      sales30dByManager.set(sale.user_id, (sales30dByManager.get(sale.user_id) || 0) + Number(sale.total || 0));
+    });
+
+    const salesTodayByManager = new Map<string, number>();
+    (salesToday || []).forEach((sale: any) => {
+      salesTodayByManager.set(sale.user_id, (salesTodayByManager.get(sale.user_id) || 0) + Number(sale.total || 0));
+    });
+
+    const managerList = (managerRoles || []).map((manager: any) => ({
+      user_id: manager.user_id,
+      full_name: profileMap.get(manager.user_id) || "Manager",
+      employeeCount: employeeCounts.get(manager.user_id) || 0,
+      salesToday: salesTodayByManager.get(manager.user_id) || 0,
+      sales30d: sales30dByManager.get(manager.user_id) || 0,
+      stockUnits: stockByManager.get(manager.user_id) || 0,
+      activityCount: 0,
+    }));
+
+    setManagers(managerList);
   };
 
   const fetchEmployeePerformance = async (employeeList: EmployeeWithProfile[]) => {
     const performance: Record<string, any> = {};
 
     for (const emp of employeeList) {
-      // Get sales data for this employee by user id
       const { data: sales } = await (supabase
         .from("sales" as any) as any)
         .select("*")
         .eq("user_id", emp.employee_user_id)
         .gte("date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]);
 
-      // Get activity count
       const { data: activities } = await (supabase
         .from("activity_log" as any) as any)
         .select("*")
@@ -173,7 +238,6 @@ export default function Employees() {
     setEmployeePerformance(performance);
   };
 
-  // Filter employees based on search query
   const filteredEmployees = useMemo(() => {
     if (!searchQuery.trim()) return employees;
     return employees.filter(emp => {
@@ -184,6 +248,14 @@ export default function Employees() {
       );
     });
   }, [employees, searchQuery]);
+
+  const filteredManagers = useMemo(() => {
+    const valid = managers.filter(m => m.full_name !== "Manager");
+    if (!managerSearchQuery.trim()) return valid;
+    return valid.filter(manager =>
+      manager.full_name.toLowerCase().includes(managerSearchQuery.toLowerCase())
+    );
+  }, [managers, managerSearchQuery]);
 
   const waitForEmployeeSetup = async (employeeUserId: string) => {
     const retries = 30;
@@ -213,11 +285,8 @@ export default function Employees() {
     const email = fd.get("email") as string;
     const password = fd.get("password") as string;
     const fullName = fd.get("fullName") as string;
-
-    // Save manager's current session before signUp switches it
     const { data: { session: managerSession } } = await supabase.auth.getSession();
 
-    // Create the employee account via Supabase auth
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
@@ -251,7 +320,6 @@ export default function Employees() {
     }
 
     const setupReady = await waitForEmployeeSetup(employeeUserId);
-
     const permissionsData = uiToDbPermissions(fullAccess ? { ...FULL_ACCESS_PERMISSIONS } : { ...perms });
 
     const { error: permError } = await (supabase.from("employee_permissions" as any) as any).upsert(
@@ -279,6 +347,62 @@ export default function Employees() {
     setFullAccess(false);
     setPerms({ ...FULL_ACCESS_PERMISSIONS });
     fetchEmployees();
+  };
+
+  const handleCreateManager = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const fd = new FormData(e.currentTarget);
+    const email = fd.get("email") as string;
+    const password = fd.get("password") as string;
+    const fullName = fd.get("fullName") as string;
+
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
+          role: "manager",
+        },
+      },
+    });
+
+    if (signUpError || !signUpData.user) {
+      toast.error(signUpError?.message || "Failed to create manager account");
+      setLoading(false);
+      return;
+    }
+
+    const managerUserId = signUpData.user.id;
+
+    try {
+      const { error: roleError } = await (supabase.from("user_roles" as any) as any).upsert(
+        { user_id: managerUserId, role: "manager" },
+        { onConflict: "user_id" }
+      );
+
+      if (roleError) {
+        const { error: insertError } = await (supabase.from("user_roles" as any) as any).insert({
+          user_id: managerUserId,
+          role: "manager",
+        });
+
+        if (insertError && insertError.code !== "23505") {
+          throw new Error(insertError.message);
+        }
+      }
+
+      toast.success(`${fullName} was added as a manager.`);
+    } catch (roleError: any) {
+      console.error("Manager role insert failed:", roleError);
+      toast.error("Account created but role assignment failed: " + roleError.message);
+    }
+
+    setCreateOpen(false);
+    setLoading(false);
+    fetchManagers();
   };
 
   const handleUpdatePermissions = async (employeeUserId: string, newPerms: Partial<typeof FULL_ACCESS_PERMISSIONS>) => {
@@ -314,9 +438,124 @@ export default function Employees() {
   if (role !== "manager" && role !== "admin") {
     return (
       <div className="pb-24">
-        <PageHeader title="Employees" subtitle="Access restricted" />
+        <PageHeader title="Managers" subtitle="Access restricted" />
         <div className="px-4 mt-8 text-center">
           <p className="text-muted-foreground">Only managers and admins can access this page.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAdminView) {
+    return (
+      <div className="pb-24">
+        <PageHeader title="Managers" subtitle="Track team performance and access" />
+
+        <div className="px-4 space-y-4 mt-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search managers..."
+              value={managerSearchQuery}
+              onChange={(e) => setManagerSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <button className="flex items-center gap-3 p-4 rounded-xl border border-primary/30 bg-primary/5 text-left w-full">
+                <div className="p-2 rounded-lg bg-primary/20">
+                  <UserPlus className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm text-foreground">Add Manager</p>
+                  <p className="text-xs text-muted-foreground">Create a new manager account</p>
+                </div>
+              </button>
+            </DialogTrigger>
+            <DialogContent className="max-w-[90vw] rounded-2xl">
+              <DialogHeader>
+                <DialogTitle>Create Manager Account</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleCreateManager} className="space-y-3">
+                <div>
+                  <Label>Full Name</Label>
+                  <Input name="fullName" placeholder="Manager name" required />
+                </div>
+                <div>
+                  <Label>Email</Label>
+                  <Input name="email" type="email" placeholder="manager@example.com" required />
+                </div>
+                <div>
+                  <Label>Password</Label>
+                  <Input name="password" type="password" placeholder="••••••••" minLength={6} required />
+                </div>
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? "Creating..." : "Create Manager"}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+            <h3 className="font-semibold text-foreground flex items-center gap-2">
+              <Users className="h-4 w-4 text-primary" />
+              Managers ({filteredManagers.length})
+            </h3>
+
+            {filteredManagers.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No managers found.</p>
+            ) : (
+              filteredManagers.map((manager) => (
+                <div key={manager.user_id} className="rounded-xl border border-border bg-background p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-foreground">{manager.full_name}</p>
+                    </div>
+                    <div className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary uppercase tracking-wide">
+                      Manager
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg bg-success/10 p-2 text-center">
+                      <p className="font-semibold text-success">RWF {manager.salesToday.toLocaleString()}</p>
+                      <p className="text-muted-foreground">Today</p>
+                    </div>
+                    <div className="rounded-lg bg-accent/10 p-2 text-center">
+                      <p className="font-semibold text-accent">RWF {manager.sales30d.toLocaleString()}</p>
+                      <p className="text-muted-foreground">30d sales</p>
+                    </div>
+                    <div className="rounded-lg bg-warning/10 p-2 text-center">
+                      <p className="font-semibold text-warning">{manager.stockUnits}</p>
+                      <p className="text-muted-foreground">Stock units</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-primary" />
+                      <span className="text-sm text-foreground">Performance</span>
+                    </div>
+                    <span className="text-sm font-semibold text-foreground">{manager.employeeCount > 0 ? `${manager.sales30d / Math.max(manager.employeeCount, 1)} / emp` : "No team"}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <Package className="h-4 w-4 text-primary" />
+                      <span className="text-sm text-foreground">Stock managed</span>
+                    </div>
+                    <span className="text-sm font-semibold text-foreground">{manager.stockUnits} units</span>
+                  </div>
+
+                  <Button variant="outline" className="w-full" onClick={() => navigate(`/employees/${manager.user_id}/performance`)}>
+                    <BarChart3 className="h-4 w-4 mr-2" /> View manager performance
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     );
@@ -327,7 +566,6 @@ export default function Employees() {
       <PageHeader title="Employees" subtitle="Manage your team" />
 
       <div className="px-4 space-y-4 mt-2">
-        {/* Search Bar */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -337,7 +575,7 @@ export default function Employees() {
             className="pl-10"
           />
         </div>
-        {/* Create Employee Button */}
+
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <button className="flex items-center gap-3 p-4 rounded-xl border border-primary/30 bg-primary/5 text-left w-full">
@@ -368,7 +606,6 @@ export default function Employees() {
                 <Input name="password" type="password" placeholder="••••••••" minLength={6} required />
               </div>
 
-              {/* Access Level */}
               <div className="border border-border rounded-xl p-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -410,7 +647,6 @@ export default function Employees() {
           </DialogContent>
         </Dialog>
 
-        {/* Employee List */}
         <div className="rounded-xl border border-border bg-card p-4">
           <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
             <Users className="h-4 w-4 text-primary" />
@@ -442,43 +678,21 @@ export default function Employees() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => navigate(`/employees/${emp.employee_user_id}/activity`)}
-                          title="View Activity"
-                        >
+                        <Button variant="ghost" size="icon" onClick={() => navigate(`/employees/${emp.employee_user_id}/activity`)} title="View Activity">
                           <Activity className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => navigate(`/employees/${emp.employee_user_id}/performance`)}
-                          title="View Performance"
-                        >
+                        <Button variant="ghost" size="icon" onClick={() => navigate(`/employees/${emp.employee_user_id}/performance`)} title="View Performance">
                           <TrendingUp className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setPermOpen(permOpen === emp.employee_user_id ? null : emp.employee_user_id)}
-                          title="Edit Permissions"
-                        >
+                        <Button variant="ghost" size="icon" onClick={() => setPermOpen(permOpen === emp.employee_user_id ? null : emp.employee_user_id)} title="Edit Permissions">
                           <Shield className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive"
-                          onClick={() => handleDeleteEmployee(emp.employee_user_id)}
-                          title="Remove Employee"
-                        >
+                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteEmployee(emp.employee_user_id)} title="Remove Employee">
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
 
-                    {/* Performance Summary */}
                     <div className="grid grid-cols-3 gap-2 mb-2 text-xs">
                       <div className="text-center p-2 rounded bg-success/10">
                         <p className="font-semibold text-success">RWF {perf.totalSales?.toLocaleString() || 0}</p>
@@ -498,12 +712,7 @@ export default function Employees() {
                       <div className="border-t border-border pt-2 space-y-2">
                         <div className="flex items-center justify-between pb-2">
                           <span className="text-xs font-medium text-foreground">All Permissions</span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleUpdatePermissions(emp.employee_user_id, FULL_ACCESS_PERMISSIONS)}
-                            className="text-xs h-7"
-                          >
+                          <Button variant="outline" size="sm" onClick={() => handleUpdatePermissions(emp.employee_user_id, FULL_ACCESS_PERMISSIONS)} className="text-xs h-7">
                             Grant All
                           </Button>
                         </div>
