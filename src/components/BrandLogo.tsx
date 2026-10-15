@@ -1,8 +1,8 @@
 import { cn } from "@/lib/utils";
 
 /** Shown next to the mark on auth screens and in metadata. */
-export const BRAND_NAME = "ICYIZERE BUSINESS LTD";
-export const BRAND_SHORT_NAME = "ICYIZERE";
+export const BRAND_NAME = "STOCK MANAGEMENT SYSTEM";
+export const BRAND_SHORT_NAME = "STOCK MS";
 export const BRAND_TAGLINE = "Smart Stock & Business Management";
 
 const LOGO_SRC = "/logo.ico";

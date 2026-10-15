@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Plus, Search, Pencil, Trash2, Package } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Package, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import CurrencyAmountField from "@/components/CurrencyAmountField";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import PageHeader from "@/components/PageHeader";
 import { useProducts, Product } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
+import { formatRwf, toRwf, type EntryCurrency } from "@/lib/currency";
+import { calculateProductTax } from "@/lib/productTax";
 
 export default function Products() {
   const { products, addProduct, updateProduct, deleteProduct } = useProducts();
@@ -15,6 +18,13 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [duplicateProduct, setDuplicateProduct] = useState<Product | null>(null);
+  const [pendingData, setPendingData] = useState<any>(null);
+  const [priceInput, setPriceInput] = useState("");
+  const [priceCurrency, setPriceCurrency] = useState<EntryCurrency>("RWF");
+  const [isTaxable, setIsTaxable] = useState(false);
+  const [taxRateInput, setTaxRateInput] = useState("18");
 
   const isAddingNew = dialogOpen && !editing;
 
@@ -25,25 +35,69 @@ export default function Products() {
   const filtered = products.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase())
   );
+  const previewPriceRwf = toRwf(parseFloat(priceInput) || 0, priceCurrency);
+  const previewTaxRwf = calculateProductTax(previewPriceRwf, isTaxable, parseFloat(taxRateInput) || 0);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const data = {
       name: fd.get("name") as string,
-      price: parseFloat(fd.get("price") as string),
+      price: toRwf(parseFloat(priceInput) || 0, priceCurrency),
       stock: parseInt(fd.get("stock") as string),
       category: fd.get("category") as string,
       minStock: parseInt(fd.get("minStock") as string),
+      isTaxable,
+      taxRate: isTaxable ? Math.min(100, Math.max(0, parseFloat(taxRateInput) || 0)) : 0,
     };
 
     if (editing) {
-      updateProduct(editing.id, data);
+      // Add new stock to existing stock instead of replacing
+      const updatedData = {
+        ...data,
+        stock: editing.stock + data.stock
+      };
+      updateProduct(editing.id, updatedData);
+      setEditing(null);
+      setDialogOpen(false);
     } else {
-      addProduct(data);
+      // Check if product with same name already exists
+      const existingProduct = products.find(p => 
+        p.name.toLowerCase() === data.name.toLowerCase()
+      );
+
+      if (existingProduct) {
+        // Product exists, show confirmation dialog
+        setDuplicateProduct(existingProduct);
+        setPendingData(data);
+        setConfirmDialogOpen(true);
+      } else {
+        // New product, add it
+        addProduct(data);
+        setDialogOpen(false);
+      }
     }
-    setEditing(null);
-    setDialogOpen(false);
+  };
+
+  const handleUpdateExisting = () => {
+    if (duplicateProduct && pendingData) {
+      // Add new stock to existing stock instead of replacing
+      const updatedData = {
+        ...pendingData,
+        stock: duplicateProduct.stock + pendingData.stock
+      };
+      updateProduct(duplicateProduct.id, updatedData);
+      setDuplicateProduct(null);
+      setPendingData(null);
+      setConfirmDialogOpen(false);
+      setDialogOpen(false);
+    }
+  };
+
+  const handleCancelDuplicate = () => {
+    setDuplicateProduct(null);
+    setPendingData(null);
+    setConfirmDialogOpen(false);
   };
 
   return (
@@ -64,7 +118,17 @@ export default function Products() {
             />
           </div>
           {canAdd && (
-            <Dialog open={dialogOpen} onOpenChange={(o) => { setDialogOpen(o); if (!o) setEditing(null); }}>
+            <Dialog open={dialogOpen} onOpenChange={(o) => {
+              setDialogOpen(o);
+              if (o) {
+                setPriceInput("");
+                setPriceCurrency("RWF");
+                setIsTaxable(false);
+                setTaxRateInput("18");
+              } else {
+                setEditing(null);
+              }
+            }}>
               <DialogTrigger asChild>
                 <Button size="icon" className="shrink-0 bg-primary text-primary-foreground">
                   <Plus className="h-4 w-4" />
@@ -76,8 +140,44 @@ export default function Products() {
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-3">
                   <div><Label>Name</Label><Input name="name" defaultValue={editing?.name} required /></div>
+                  <CurrencyAmountField
+                    label="Price"
+                    value={priceInput}
+                    onChange={setPriceInput}
+                    currency={priceCurrency}
+                    onCurrencyChange={setPriceCurrency}
+                    step="0.01"
+                    required
+                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="product-taxable"
+                      type="checkbox"
+                      checked={isTaxable}
+                      onChange={(event) => setIsTaxable(event.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    <Label htmlFor="product-taxable">Charge tax on this product</Label>
+                  </div>
+                  {isTaxable && (
+                    <div>
+                      <Label htmlFor="product-tax-rate">Tax rate (%)</Label>
+                      <Input
+                        id="product-tax-rate"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={taxRateInput}
+                        onChange={(event) => setTaxRateInput(event.target.value)}
+                        required
+                      />
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatRwf(previewPriceRwf)} × {parseFloat(taxRateInput) || 0}% = {formatRwf(previewTaxRwf)} tax per unit; total with tax: {formatRwf(previewPriceRwf + previewTaxRwf)}
+                      </p>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-3">
-                    <div><Label>Price</Label><Input name="price" type="number" step="0.01" defaultValue={editing?.price} required /></div>
                     <div><Label>Stock</Label><Input name="stock" type="number" defaultValue={editing?.stock} required /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -89,6 +189,48 @@ export default function Products() {
               </DialogContent>
             </Dialog>
           )}
+
+          {/* Confirmation Dialog for Duplicate Product */}
+          <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+            <DialogContent className="max-w-[90vw] rounded-2xl">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-destructive" />
+                  Product Already Exists
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  A product named <span className="font-semibold text-foreground">{duplicateProduct?.name}</span> already exists.
+                </p>
+                <div className="p-3 bg-secondary rounded-lg space-y-1">
+                  <p className="text-xs text-muted-foreground">Current details:</p>
+                  <p className="text-sm">Price: RWF {duplicateProduct?.price.toLocaleString()}</p>
+                  <p className="text-sm">Tax: {duplicateProduct?.isTaxable ? `${duplicateProduct.taxRate}%` : "Not charged"}</p>
+                  <p className="text-sm">Stock: {duplicateProduct?.stock}</p>
+                  <p className="text-sm">Category: {duplicateProduct?.category}</p>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Would you like to update the existing product with the new details?
+                </p>
+              </div>
+              <DialogFooter className="gap-2">
+                <Button 
+                  variant="outline" 
+                  onClick={handleCancelDuplicate}
+                  className="flex-1"
+                >
+                  Change Name
+                </Button>
+                <Button 
+                  onClick={handleUpdateExisting}
+                  className="flex-1 bg-primary text-primary-foreground"
+                >
+                  Update Existing
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Product List */}
@@ -107,12 +249,24 @@ export default function Products() {
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-foreground text-sm truncate">{product.name}</p>
                 <p className="text-xs text-muted-foreground">{product.category} · Stock: {product.stock}</p>
+                <p className="text-xs text-muted-foreground">
+                  {product.isTaxable
+                    ? `Tax ${product.taxRate}%: ${formatRwf(calculateProductTax(product.price, true, product.taxRate))} per unit`
+                    : "Tax not charged"}
+                </p>
               </div>
               <span className="font-semibold text-foreground text-sm">RWF {product.price.toLocaleString()}</span>
               <div className="flex gap-1">
                 {canEdit && (
                   <button
-                    onClick={() => { setEditing(product); setDialogOpen(true); }}
+                    onClick={() => {
+                      setEditing(product);
+                      setPriceInput(product.price.toString());
+                      setPriceCurrency("RWF");
+                      setIsTaxable(product.isTaxable);
+                      setTaxRateInput(product.taxRate.toString());
+                      setDialogOpen(true);
+                    }}
                     disabled={isAddingNew}
                     className="p-1.5 rounded-lg text-muted-foreground hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
                   >

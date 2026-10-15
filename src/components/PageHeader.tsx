@@ -15,7 +15,7 @@ export default function PageHeader({ title, subtitle }: PageHeaderProps) {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <header className="flex items-start justify-between gap-3 px-4 pt-4 pb-2">
+    <header className="flex items-start justify-between gap-3 px-4 pt-4 pb-2 lg:hidden">
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <button
           type="button"

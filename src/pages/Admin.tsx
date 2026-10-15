@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Shield, UserCheck, UserX } from "lucide-react";
+import { Activity, Shield, UserCheck, UserX, Users, Settings, FileText, Log } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import PageHeader from "@/components/PageHeader";
@@ -96,7 +96,7 @@ export default function Admin() {
 
   return (
     <div className="pb-24">
-      <PageHeader title="Administration" subtitle="Manage account access and activity" />
+      <PageHeader title="User Management" subtitle="Manage account access and permissions" />
       <div className="space-y-6 px-4">
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
           <div className="flex items-center gap-2 font-semibold text-foreground"><Shield className="h-4 w-4 text-primary" /> Access control</div>

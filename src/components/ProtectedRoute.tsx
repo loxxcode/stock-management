@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { AppRole, useAuth } from "@/contexts/AuthContext";
+import AccessDenied from "@/pages/AccessDenied";
 
 export default function ProtectedRoute({
   children,
@@ -27,7 +28,7 @@ export default function ProtectedRoute({
   }
 
   if (allowedRoles && (!role || !allowedRoles.includes(role))) {
-    return <Navigate to="/" replace />;
+    return <AccessDenied />;
   }
 
   return <>{children}</>;

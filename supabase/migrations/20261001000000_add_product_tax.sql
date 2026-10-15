@@ -1,0 +1,7 @@
+ALTER TABLE public.products
+  ADD COLUMN IF NOT EXISTS is_taxable BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(5, 2) NOT NULL DEFAULT 0
+    CHECK (tax_rate >= 0 AND tax_rate <= 100);
+
+ALTER TABLE public.sales
+  ADD COLUMN IF NOT EXISTS tax_amount NUMERIC NOT NULL DEFAULT 0;

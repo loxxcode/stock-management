@@ -35,6 +35,8 @@ export async function seedDatabase() {
         stock: 800,
         category: "Grains",
         min_stock: 10,
+        is_taxable: false,
+        tax_rate: 0,
         user_id: userId,
       },
       {
@@ -43,6 +45,8 @@ export async function seedDatabase() {
         stock: 180,
         category: "Legumes",
         min_stock: 10,
+        is_taxable: false,
+        tax_rate: 0,
         user_id: userId,
       },
     ];
@@ -67,6 +71,7 @@ export async function seedDatabase() {
           product_name: "Bean",
           quantity: 99,
           total: 9900,
+          tax_amount: 0,
           date: "2026-04-04",
           employee_name: "nick",
           user_id: userId,

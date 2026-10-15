@@ -62,8 +62,10 @@ export default function Reports() {
   }, [sales, expenses, stockEntries, credits, period]);
 
   const totalSales = filtered.sales.reduce((s, v) => s + v.total, 0);
+  const productTaxCollected = filtered.sales.reduce((sum, sale) => sum + Number(sale.taxAmount || 0), 0);
+  const salesBeforeProductTax = totalSales - productTaxCollected;
   const totalExpenses = filtered.expenses.reduce((s, v) => s + v.amount, 0);
-  const netProfit = totalSales - totalExpenses;
+  const netProfit = salesBeforeProductTax - totalExpenses;
   const estimatedTax = Math.max(0, netProfit * TAX_RATE);
   const afterTax = netProfit - estimatedTax;
   const stockAdded = filtered.stockEntries.filter((entry) => entry.type === "in").reduce((sum, entry) => sum + entry.quantity, 0);
@@ -84,11 +86,12 @@ export default function Reports() {
 
   // Sales by product
   const salesByProduct = useMemo(() => {
-    const map: Record<string, { qty: number; total: number }> = {};
+    const map: Record<string, { qty: number; total: number; taxAmount: number }> = {};
     filtered.sales.forEach(s => {
-      if (!map[s.productName]) map[s.productName] = { qty: 0, total: 0 };
+      if (!map[s.productName]) map[s.productName] = { qty: 0, total: 0, taxAmount: 0 };
       map[s.productName].qty += s.quantity;
       map[s.productName].total += s.total;
+      map[s.productName].taxAmount += Number(s.taxAmount || 0);
     });
     return Object.entries(map).sort((a, b) => b[1].total - a[1].total);
   }, [filtered.sales]);
@@ -109,7 +112,7 @@ export default function Reports() {
 
     const document = new jsPDF();
     document.setFontSize(18);
-    document.text("ICYIZERE BUSINESS - Loan Report", 14, 18);
+    document.text("STOCK MS - Loan Report", 14, 18);
     document.setFontSize(10);
     document.text(`Client: ${loanClientSearch.trim() || "All clients"}`, 14, 27);
     document.text(`Date: ${loanReportDate || "All dates"}`, 14, 34);
@@ -150,7 +153,7 @@ export default function Reports() {
     };
 
     document.setFontSize(20);
-    document.text("ICYIZERE BUSINESS", 14, y);
+    document.text("STOCK MS", 14, y);
     y += 8;
     document.setFontSize(14);
     document.text(`${periodLabel[period]} Financial Report`, 14, y);
@@ -159,10 +162,12 @@ export default function Reports() {
 
     addLine("CALCULATED SUMMARY", 13);
     addLine(`Revenue = sum of sales totals: ${money(totalSales)}`);
+    addLine(`Product tax collected: ${money(productTaxCollected)}`);
+    addLine(`Sales before product tax: ${money(salesBeforeProductTax)}`);
     addLine(`Expenses = sum of expense amounts: ${money(totalExpenses)}`);
     addLine(`Stock = current quantity across all products: ${totalStockUnits} units`);
-    addLine(`Profit = revenue - expenses: ${money(netProfit)}`);
-    addLine(`Estimated tax = max(0, profit x 18%): ${money(estimatedTax)}`);
+    addLine(`Profit = sales before product tax - expenses: ${money(netProfit)}`);
+    addLine(`Estimated income tax = max(0, profit x 18%): ${money(estimatedTax)}`);
     addLine(`Profit after tax = profit - estimated tax: ${money(afterTax)}`);
     addLine(`Loans created in period: ${money(periodLoanAmount)} | Paid: ${money(periodLoanPaid)} | Outstanding: ${money(periodLoanOutstanding)}`);
     addLine(`Stock added: ${stockAdded} units | Stock removed: ${stockRemoved} units | Products currently listed: ${products.length}`);
@@ -192,7 +197,7 @@ export default function Reports() {
     });
     if (filtered.credits.length === 0) addLine("No loan transactions in this period.");
 
-    document.save(`icyizere-${period}-report-${reportDate}.pdf`);
+    document.save(`STOCK MS-${period}-report-${reportDate}.pdf`);
   };
 
   const periodLabel: Record<Period, string> = {
@@ -310,6 +315,14 @@ export default function Reports() {
                   <span className="font-medium text-foreground">RWF {totalSales.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-muted-foreground">Product Tax Collected</span>
+                  <span className="font-medium text-foreground">RWF {productTaxCollected.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Revenue Before Product Tax</span>
+                  <span className="font-medium text-foreground">RWF {salesBeforeProductTax.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">Total Deductions</span>
                   <span className="font-medium text-destructive">-RWF {totalExpenses.toLocaleString()}</span>
                 </div>
@@ -319,7 +332,7 @@ export default function Reports() {
                 </div>
                 <div className="border-t border-border my-1" />
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Estimated Tax (18%)</span>
+                  <span className="text-muted-foreground">Estimated Income Tax (18%)</span>
                   <span className="font-bold text-warning">RWF {estimatedTax.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
@@ -344,8 +357,12 @@ export default function Reports() {
                       <div>
                         <span className="text-foreground font-medium">{name}</span>
                         <span className="text-xs text-muted-foreground ml-2">×{data.qty}</span>
+                        <p className="text-xs text-muted-foreground">Product tax collected: RWF {data.taxAmount.toLocaleString()}</p>
                       </div>
-                      <span className="font-semibold text-success">RWF {data.total.toLocaleString()}</span>
+                      <div className="text-right">
+                        <p className="font-semibold text-success">RWF {data.total.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">Sales total</p>
+                      </div>
                     </div>
                   ))}
                 </div>

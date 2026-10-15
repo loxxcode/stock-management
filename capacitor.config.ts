@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.jeanromeo.icyizere',
-  appName: 'icyizere',
+  appId: 'com.jeanromeo.sms',
+  appName: 'sms',
   webDir: 'dist'
 };
 

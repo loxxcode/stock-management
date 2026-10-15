@@ -85,12 +85,12 @@ export default function ResetPassword() {
           <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-card mb-4 overflow-hidden shadow-sm">
             <img
               src="/favicon.ico"
-              alt="ICYIZERE BUSINESS LTD logo"
+              alt="STOCK MANAGEMENT SYSTEM logo"
               className="h-full w-full object-cover"
             />
           </div>
 
-          <h1 className="text-3xl font-display font-bold text-primary-foreground">ICYIZERE BUSINESS LTD</h1>
+          <h1 className="text-3xl font-display font-bold text-primary-foreground">STOCK MANAGEMENT SYSTEM</h1>
           <p className="text-primary-foreground/70 mt-1 text-sm">Exchange Services</p>
         </div>
 

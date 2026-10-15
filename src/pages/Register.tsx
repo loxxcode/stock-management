@@ -55,7 +55,6 @@ export default function Register() {
     <div className="min-h-screen flex flex-col bg-primary px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-8">
         <div className="mb-8 text-center">
-          <BrandLogo variant="hero" className="mb-5" />
           <h1 className="font-display text-2xl font-bold tracking-tight text-primary-foreground sm:text-3xl">
             {BRAND_NAME}
           </h1>

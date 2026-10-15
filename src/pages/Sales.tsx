@@ -3,6 +3,7 @@ import { Plus, ShoppingCart, DollarSign, TrendingUp, Search, Check, HandCoins, C
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import CurrencyAmountField from "@/components/CurrencyAmountField";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -12,6 +13,8 @@ import StatCard from "@/components/StatCard";
 import { useProducts, useSales, useCustomerCredits } from "@/lib/store";
 import { useAuth } from "@/contexts/AuthContext";
 import { summarizeCustomerCredits } from "@/lib/credit";
+import { formatRwf, toRwf, type EntryCurrency } from "@/lib/currency";
+import { calculateProductTax } from "@/lib/productTax";
 
 export default function Sales() {
   const { profile } = useAuth();
@@ -23,6 +26,7 @@ export default function Sales() {
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [quantity, setQuantity] = useState(1);
   const [pricePerUnit, setPricePerUnit] = useState(0);
+  const [saleCurrency, setSaleCurrency] = useState<EntryCurrency>("RWF");
   const [productSearchOpen, setProductSearchOpen] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const [loanProductName, setLoanProductName] = useState("");
@@ -30,6 +34,7 @@ export default function Sales() {
   const [loanProductSearchOpen, setLoanProductSearchOpen] = useState(false);
   const [loanQuantity, setLoanQuantity] = useState(1);
   const [loanAmount, setLoanAmount] = useState(0);
+  const [loanCurrency, setLoanCurrency] = useState<EntryCurrency>("RWF");
   const [loanDueDate, setLoanDueDate] = useState(new Date().toISOString().split("T")[0]);
   const [loanNote, setLoanNote] = useState("");
   const [loanSearch, setLoanSearch] = useState("");
@@ -45,7 +50,11 @@ export default function Sales() {
   const [customerDetailOpen, setCustomerDetailOpen] = useState(false);
   const [customerPaymentInput, setCustomerPaymentInput] = useState<Record<string, string>>({});
 
-  const total = selectedProduct ? pricePerUnit * quantity : 0;
+  const subtotal = selectedProduct ? toRwf(pricePerUnit, saleCurrency) * quantity : 0;
+  const taxAmount = selectedProduct
+    ? calculateProductTax(subtotal, selectedProduct.isTaxable, selectedProduct.taxRate ?? 0)
+    : 0;
+  const total = subtotal + taxAmount;
   const summary = useMemo(() => summarizeCustomerCredits(
     credits.map((credit) => ({
       customerName: credit.customerName,
@@ -126,6 +135,7 @@ export default function Sales() {
       productName: selectedProduct.name,
       quantity,
       total,
+      taxAmount,
       date: new Date().toISOString().split("T")[0],
       employeeName: profile?.full_name || "Manager",
     });
@@ -135,6 +145,7 @@ export default function Sales() {
     setSelectedProduct(null);
     setQuantity(1);
     setPricePerUnit(0);
+    setSaleCurrency("RWF");
   };
 
   const handleLoanSubmit = (e: React.FormEvent) => {
@@ -146,7 +157,7 @@ export default function Sales() {
       customerName: customerName.trim(),
       productName: productLabel,
       quantity: loanQuantity,
-      amountDue: loanAmount,
+      amountDue: toRwf(loanAmount, loanCurrency),
       paidAmount: 0,
       status: "open",
       date: new Date().toISOString().split("T")[0],
@@ -161,6 +172,7 @@ export default function Sales() {
     setSelectedLoanProduct(null);
     setLoanQuantity(1);
     setLoanAmount(0);
+    setLoanCurrency("RWF");
     setLoanDueDate(new Date().toISOString().split("T")[0]);
     setLoanNote("");
   };
@@ -251,6 +263,7 @@ export default function Sales() {
                                 onSelect={() => {
                                   setSelectedProduct(product);
                                   setPricePerUnit(product.price);
+                                  setSaleCurrency("RWF");
                                   setProductSearchOpen(false);
                                 }}
                               >
@@ -269,14 +282,21 @@ export default function Sales() {
                     <Label>Quantity</Label>
                     <Input type="number" min="1" max={selectedProduct?.stock || 1} value={quantity} onChange={e => setQuantity(parseInt(e.target.value) || 1)} />
                   </div>
-                  <div>
-                    <Label>Price per Unit (RWF)</Label>
-                    <Input type="number" step="0.01" min="0" value={pricePerUnit} onChange={e => setPricePerUnit(parseFloat(e.target.value) || 0)} />
-                  </div>
+                  <CurrencyAmountField
+                    label="Price per Unit"
+                    value={pricePerUnit.toString()}
+                    onChange={(value) => setPricePerUnit(parseFloat(value) || 0)}
+                    currency={saleCurrency}
+                    onCurrencyChange={setSaleCurrency}
+                  />
                 </div>
                 {selectedProduct && (
                   <div className="p-3 rounded-lg bg-success/10 border border-success/20 text-sm">
-                    <p className="text-muted-foreground">Total: <span className="font-bold text-foreground text-lg">RWF {total.toLocaleString()}</span></p>
+                    <p className="text-muted-foreground">Subtotal: <span className="font-medium text-foreground">{formatRwf(subtotal)}</span></p>
+                    <p className="text-muted-foreground">
+                      Product tax{selectedProduct.isTaxable ? ` (${selectedProduct.taxRate}%)` : " (not charged)"}: {formatRwf(taxAmount)}
+                    </p>
+                    <p className="text-muted-foreground">Total: <span className="font-bold text-foreground text-lg">{formatRwf(total)}</span></p>
                     <p className="text-xs text-muted-foreground">Available stock: {selectedProduct.stock}</p>
                   </div>
                 )}
@@ -341,10 +361,13 @@ export default function Sales() {
                     <Input type="number" min="1" value={loanQuantity} onChange={e => setLoanQuantity(parseInt(e.target.value) || 1)} />
                   </div>
                 </div>
-                <div>
-                  <Label>Amount owed (RWF)</Label>
-                  <Input type="number" min="0" step="100" value={loanAmount} onChange={e => setLoanAmount(parseFloat(e.target.value) || 0)} />
-                </div>
+                <CurrencyAmountField
+                  label="Amount owed"
+                  value={loanAmount.toString()}
+                  onChange={(value) => setLoanAmount(parseFloat(value) || 0)}
+                  currency={loanCurrency}
+                  onCurrencyChange={setLoanCurrency}
+                />
                 <div>
                   <Label>Due date</Label>
                   <Input type="date" value={loanDueDate} onChange={e => setLoanDueDate(e.target.value)} />
@@ -354,7 +377,7 @@ export default function Sales() {
                   <Input value={loanNote} onChange={e => setLoanNote(e.target.value)} placeholder="Payment plan or reminder" />
                 </div>
                 <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm">
-                  <p className="text-muted-foreground">Customer owes: <span className="font-bold text-foreground text-lg">RWF {loanAmount.toLocaleString()}</span></p>
+                  <p className="text-muted-foreground">Customer owes: <span className="font-bold text-foreground text-lg">{formatRwf(toRwf(loanAmount, loanCurrency))}</span></p>
                   <p className="text-xs text-muted-foreground">This is saved separately from sales and will show in the loan list.</p>
                 </div>
                 <Button type="submit" className="w-full bg-amber-500 text-white" disabled={!customerName.trim() || !(selectedLoanProduct?.name || loanProductName.trim()) || loanAmount <= 0}>Save Loan</Button>
@@ -392,7 +415,7 @@ export default function Sales() {
                 const outstanding = Math.max(0, credit.amountDue - credit.paidAmount);
 
                 return (
-                  <div key={credit.id} className="flex items-start gap-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
+                  <div key={credit.id} onClick={() => openCustomerDetail(credit)} className="flex items-start gap-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5 cursor-pointer">
                     <div className="p-2 rounded-lg bg-amber-500/10">
                       <HandCoins className="h-4 w-4 text-amber-600" />
                     </div>
