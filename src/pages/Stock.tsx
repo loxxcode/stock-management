@@ -26,9 +26,12 @@ interface InvoiceItem {
 export default function Stock() {
   const { permissions, role } = useAuth();
 
-  const canManageStock = role === "admin" || role === "manager" || Boolean(permissions?.can_add_stock || permissions?.can_remove_stock);
+  const canViewStock = role === "admin" || role === "manager" || Boolean(permissions?.can_view_stock);
+  const canAddStock = role === "admin" || role === "manager" || Boolean(permissions?.can_add_stock);
+  const canRemoveStock = role === "admin" || role === "manager" || Boolean(permissions?.can_remove_stock);
+  const canAccessStock = canViewStock || canAddStock || canRemoveStock;
 
-  if (!canManageStock) {
+  if (!canAccessStock) {
     return <Navigate to="/" replace />;
   }
 
@@ -186,64 +189,71 @@ export default function Stock() {
 
       <div className="px-4 space-y-4 mt-2">
         {/* Quick Actions */}
-        <div className="grid grid-cols-2 gap-3">
-          <Dialog open={dialogOpen && stockType === "in"} onOpenChange={(o) => { setDialogOpen(o); setStockType("in"); }}>
-            <DialogTrigger asChild>
-              <button className="flex items-center gap-3 p-4 rounded-xl border border-success/30 bg-success/5 text-left">
-                <div className="p-2 rounded-lg bg-success/20">
-                  <ArrowDownToLine className="h-5 w-5 text-success" />
-                </div>
-                <div>
-                  <p className="font-semibold text-sm text-foreground">Stock IN</p>
-                  <p className="text-xs text-muted-foreground">Add manually</p>
-                </div>
-              </button>
-            </DialogTrigger>
-            <DialogContent className="max-w-[90vw] rounded-2xl">
-              <DialogHeader><DialogTitle>Stock IN</DialogTitle></DialogHeader>
-              <StockForm products={products} onSubmit={handleSubmit} stockType="in" />
-            </DialogContent>
-          </Dialog>
+        {(canAddStock || canRemoveStock) && (
+          <div className="grid grid-cols-2 gap-3">
+            {canAddStock && (
+              <Dialog open={dialogOpen && stockType === "in"} onOpenChange={(o) => { setDialogOpen(o); setStockType("in"); }}>
+                <DialogTrigger asChild>
+                  <button className="flex items-center gap-3 p-4 rounded-xl border border-success/30 bg-success/5 text-left">
+                    <div className="p-2 rounded-lg bg-success/20">
+                      <ArrowDownToLine className="h-5 w-5 text-success" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-sm text-foreground">Stock IN</p>
+                      <p className="text-xs text-muted-foreground">Add manually</p>
+                    </div>
+                  </button>
+                </DialogTrigger>
+                <DialogContent className="max-w-[90vw] rounded-2xl">
+                  <DialogHeader><DialogTitle>Stock IN</DialogTitle></DialogHeader>
+                  <StockForm products={products} onSubmit={handleSubmit} stockType="in" />
+                </DialogContent>
+              </Dialog>
+            )}
 
-          <Dialog open={dialogOpen && stockType === "out"} onOpenChange={(o) => { setDialogOpen(o); setStockType("out"); if (!o) setSelectedProduct(""); }}>
-            <DialogTrigger asChild>
-              <button className="flex items-center gap-3 p-4 rounded-xl border border-warning/30 bg-warning/5 text-left">
-                <div className="p-2 rounded-lg bg-warning/20">
-                  <ArrowUpFromLine className="h-5 w-5 text-warning" />
-                </div>
-                <div>
-                  <p className="font-semibold text-sm text-foreground">Stock OUT</p>
-                  <p className="text-xs text-muted-foreground">Record outflow</p>
-                </div>
-              </button>
-            </DialogTrigger>
-            <DialogContent className="max-w-[90vw] rounded-2xl">
-              <DialogHeader><DialogTitle>Stock OUT</DialogTitle></DialogHeader>
-              <StockForm
-                products={products}
-                onSubmit={handleSubmit}
-                stockType="out"
-                selectedProduct={selectedProduct}
-                onProductChange={setSelectedProduct}
-              />
-            </DialogContent>
-          </Dialog>
-        </div>
+            {canRemoveStock && (
+              <Dialog open={dialogOpen && stockType === "out"} onOpenChange={(o) => { setDialogOpen(o); setStockType("out"); if (!o) setSelectedProduct(""); }}>
+                <DialogTrigger asChild>
+                  <button className="flex items-center gap-3 p-4 rounded-xl border border-warning/30 bg-warning/5 text-left">
+                    <div className="p-2 rounded-lg bg-warning/20">
+                      <ArrowUpFromLine className="h-5 w-5 text-warning" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-sm text-foreground">Stock OUT</p>
+                      <p className="text-xs text-muted-foreground">Record outflow</p>
+                    </div>
+                  </button>
+                </DialogTrigger>
+                <DialogContent className="max-w-[90vw] rounded-2xl">
+                  <DialogHeader><DialogTitle>Stock OUT</DialogTitle></DialogHeader>
+                  <StockForm
+                    products={products}
+                    onSubmit={handleSubmit}
+                    stockType="out"
+                    selectedProduct={selectedProduct}
+                    onProductChange={setSelectedProduct}
+                  />
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
+        )}
 
         {/* Invoice Upload Button */}
-        <Dialog open={invoiceDialogOpen} onOpenChange={(o) => { setInvoiceDialogOpen(o); if (!o) { setInvoiceStep("upload"); setInvoiceItems([]); } }}>
-          <DialogTrigger asChild>
-            <button className="flex items-center gap-3 p-4 rounded-xl border border-primary/30 bg-primary/5 text-left w-full">
-              <div className="p-2 rounded-lg bg-primary/20">
-                <FileUp className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="font-semibold text-sm text-foreground">Stock IN via Invoice</p>
-                <p className="text-xs text-muted-foreground">Upload invoice to auto-add stock</p>
-              </div>
-            </button>
-          </DialogTrigger>
-          <DialogContent className="max-w-[95vw] max-h-[85vh] overflow-y-auto rounded-2xl">
+        {canAddStock && (
+          <Dialog open={invoiceDialogOpen} onOpenChange={(o) => { setInvoiceDialogOpen(o); if (!o) { setInvoiceStep("upload"); setInvoiceItems([]); } }}>
+            <DialogTrigger asChild>
+              <button className="flex items-center gap-3 p-4 rounded-xl border border-primary/30 bg-primary/5 text-left w-full">
+                <div className="p-2 rounded-lg bg-primary/20">
+                  <FileUp className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm text-foreground">Stock IN via Invoice</p>
+                  <p className="text-xs text-muted-foreground">Upload invoice to auto-add stock</p>
+                </div>
+              </button>
+            </DialogTrigger>
+            <DialogContent className="max-w-[95vw] max-h-[85vh] overflow-y-auto rounded-2xl">
             <DialogHeader>
               <DialogTitle>{invoiceStep === "upload" ? "Upload Invoice" : "Review Items"}</DialogTitle>
             </DialogHeader>
@@ -352,8 +362,9 @@ export default function Stock() {
                 </div>
               </div>
             )}
-          </DialogContent>
-        </Dialog>
+            </DialogContent>
+          </Dialog>
+        )}
 
         {/* All Products Current Stock Table */}
         <div className="rounded-xl border border-border bg-card p-4 overflow-x-auto">

@@ -22,7 +22,7 @@ const managerNavItems = [
   { icon: ShoppingCart, label: "Sales", path: "/sales" },
   { icon: Receipt, label: "Expenses", path: "/expenses" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
-  // { icon: Users, label: "Employees", path: "/employees" },
+  { icon: Users, label: "Employees", path: "/employees" },
 ];
 
 // Employee navigation - limited operational access
@@ -37,7 +37,7 @@ const employeeNavItems = [
 export default function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { role } = useAuth();
+  const { role, permissions } = useAuth();
 
   const hiddenPaths = ["/login", "/register"];
   if (hiddenPaths.includes(location.pathname)) return null;
@@ -47,7 +47,14 @@ export default function BottomNav() {
     ? adminNavItems
     : role === "manager"
       ? managerNavItems
-      : employeeNavItems;
+      : permissions?.can_view_stock || permissions?.can_add_stock || permissions?.can_remove_stock
+        ? [
+            employeeNavItems[0],
+            { icon: Package, label: "Products", path: "/products" },
+            { icon: Warehouse, label: "Stock", path: "/stock" },
+            ...employeeNavItems.slice(1),
+          ]
+        : employeeNavItems;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur-lg safe-area-bottom lg:hidden">

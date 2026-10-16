@@ -23,7 +23,7 @@ const managerNavItems = [
   { icon: ShoppingCart, label: "Sales", path: "/sales" },
   { icon: Receipt, label: "Expenses", path: "/expenses" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
-  // { icon: Users, label: "Employees", path: "/employees" },
+  { icon: Users, label: "Employees", path: "/employees" },
 ];
 
 // Employee navigation - limited operational access
@@ -38,7 +38,7 @@ const employeeNavItems = [
 export default function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { role } = useAuth();
+  const { role, permissions } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   const hiddenPaths = ["/login", "/register"];
@@ -49,7 +49,14 @@ export default function AppSidebar() {
     ? adminNavItems 
     : role === "manager" 
       ? managerNavItems 
-      : employeeNavItems;
+      : permissions?.can_view_stock || permissions?.can_add_stock || permissions?.can_remove_stock
+        ? [
+            employeeNavItems[0],
+            { icon: Package, label: "Products", path: "/products" },
+            { icon: Warehouse, label: "Stock", path: "/stock" },
+            ...employeeNavItems.slice(1),
+          ]
+        : employeeNavItems;
 
   return (
     <aside className="fixed left-0 top-0 hidden h-screen w-72 shrink-0 border-r border-border bg-card/80 backdrop-blur-lg lg:flex lg:flex-col">

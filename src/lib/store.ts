@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getCreditStatus, getVisibleCreditUserIds } from "@/lib/credit";
+import type { ImportedProduct } from "@/lib/productImport";
 import type { AppRole } from "@/contexts/AuthContext";
 
 // Use the project's Supabase client (cast to any for tables not yet in generated types)
@@ -39,6 +40,7 @@ export interface Expense {
   amount: number;
   description: string;
   date: string;
+  recordedBy: string;
 }
 
 export interface CustomerCredit {
@@ -72,6 +74,17 @@ export interface StockEntry {
   quantity: number;
   date: string;
   note: string;
+}
+
+interface ImportedProductRow {
+  id: string;
+  name: string;
+  price: number | string;
+  stock: number;
+  category: string | null;
+  min_stock: number | null;
+  is_taxable: boolean | null;
+  tax_rate: number | string | null;
 }
 
 // ---------- Helper ----------
@@ -169,7 +182,7 @@ export function useProducts() {
       }
 
       // Check permission for viewing products
-      const canView = await hasPermission('can_view_products');
+      const canView = await hasPermission('can_view_stock');
       if (!canView) {
         setProducts([]);
         setLoading(false);
@@ -267,15 +280,88 @@ export function useProducts() {
     }
   };
 
+  const addProducts = async (newProducts: ImportedProduct[]) => {
+    const userId = await getUserId();
+    if (!userId) return { added: 0, error: "Sign in before importing products." };
+
+    const canAdd = await hasPermission("can_add_product");
+    if (!canAdd) {
+      return { added: 0, error: "You do not have permission to add products." };
+    }
+
+    const { data, error } = await db
+      .from("products")
+      .insert(newProducts.map((product) => ({
+        name: product.name,
+        price: product.price,
+        stock: product.stock,
+        category: product.category,
+        min_stock: product.minStock,
+        is_taxable: product.isTaxable,
+        tax_rate: product.taxRate,
+        user_id: userId,
+      })))
+      .select();
+
+    if (error) {
+      console.error("Error importing products:", error);
+      return { added: 0, error: error.message };
+    }
+
+    const addedProducts: Product[] = (data ?? []).map((row: ImportedProductRow) => ({
+      id: row.id,
+      name: row.name,
+      price: Number(row.price),
+      stock: Number(row.stock),
+      category: row.category ?? "General",
+      minStock: Number(row.min_stock ?? 10),
+      isTaxable: Boolean(row.is_taxable ?? false),
+      taxRate: Number(row.tax_rate ?? 0),
+    }));
+
+    setProducts((prev) => [...addedProducts, ...prev]);
+    await logAuditEvent(
+      "create",
+      "product",
+      null,
+      null,
+      { count: addedProducts.length },
+      `Imported ${addedProducts.length} products from spreadsheet`
+    );
+
+    return { added: addedProducts.length };
+  };
+
   const updateProduct = async (id: string, p: Partial<Product>) => {
     const userId = await getUserId();
     const role = await getUserRole();
     if (!userId) return;
-    
-    // Check permission for editing products
-    const canEdit = await hasPermission('can_edit_product');
-    if (!canEdit) {
-      console.error('Permission denied: cannot edit products');
+
+    const currentStock = products.find((product) => product.id === id)?.stock;
+    const changesStock = p.stock !== undefined && currentStock !== undefined && p.stock !== currentStock;
+    const changesProductDetails = p.name !== undefined
+      || p.price !== undefined
+      || p.category !== undefined
+      || p.minStock !== undefined
+      || p.isTaxable !== undefined
+      || p.taxRate !== undefined;
+
+    const isManager = role === 'manager' || role === 'admin';
+    if (changesProductDetails && !isManager && !(await hasPermission('can_edit_product'))) {
+      console.error('Permission denied: cannot edit product details');
+      return;
+    }
+
+    if (changesStock && !isManager) {
+      const stockPermission = p.stock! > currentStock! ? 'can_add_stock' : 'can_remove_stock';
+      if (!(await hasPermission(stockPermission))) {
+        console.error(`Permission denied: cannot ${stockPermission === 'can_add_stock' ? 'add' : 'remove'} stock`);
+        return;
+      }
+    }
+
+    if (!changesProductDetails && !changesStock) {
+      console.error('Product update contains no authorized changes');
       return;
     }
 
@@ -316,7 +402,7 @@ export function useProducts() {
     }
   };
 
-  return { products, addProduct, updateProduct, deleteProduct, setProducts, loading };
+  return { products, addProduct, addProducts, updateProduct, deleteProduct, setProducts, loading };
 }
 
 // ---------- useSales ----------
@@ -771,6 +857,19 @@ export function useExpenses() {
         console.error('Error fetching expenses:', error);
         setExpenses([]);
       } else if (data) {
+        const userIds = [...new Set(data.map((expense: any) => expense.user_id).filter(Boolean))];
+        const { data: profiles, error: profilesError } = userIds.length
+          ? await db.from("profiles").select("user_id, full_name").in("user_id", userIds)
+          : { data: [], error: null };
+
+        if (profilesError) {
+          console.error('Error fetching expense recorders:', profilesError);
+        }
+
+        const profileNames = new Map(
+          (profiles ?? []).map((profile: any) => [profile.user_id, profile.full_name?.trim()])
+        );
+
         setExpenses(
           data.map((r: any) => ({
             id: r.id,
@@ -778,6 +877,7 @@ export function useExpenses() {
             amount: Number(r.amount),
             description: r.description ?? "",
             date: r.date,
+            recordedBy: profileNames.get(r.user_id) || "Unknown user",
           }))
         );
       }
@@ -805,7 +905,7 @@ export function useExpenses() {
     };
   }, [fetchExpenses]);
 
-  const addExpense = async (e: Omit<Expense, "id">) => {
+  const addExpense = async (e: Omit<Expense, "id" | "recordedBy">) => {
     const userId = await getUserId();
     const role = await getUserRole();
     if (!userId) return;
@@ -817,6 +917,7 @@ export function useExpenses() {
       return;
     }
 
+    const recordedBy = (await getUserFullName())?.trim() || "Unknown user";
     const { data, error } = await db
       .from("expenses")
       .insert({
@@ -837,13 +938,14 @@ export function useExpenses() {
           amount: Number(data.amount),
           description: data.description ?? "",
           date: data.date,
+          recordedBy,
         },
         ...prev,
       ]);
     }
   };
 
-  const updateExpense = async (id: string, e: Omit<Expense, "id">) => {
+  const updateExpense = async (id: string, e: Omit<Expense, "id" | "recordedBy">) => {
     const userId = await getUserId();
     const role = await getUserRole();
     if (!userId) return;
@@ -884,6 +986,7 @@ export function useExpenses() {
                 amount: Number(data.amount),
                 description: data.description ?? "",
                 date: data.date,
+                recordedBy: expense.recordedBy,
               }
             : expense
         )

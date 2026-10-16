@@ -176,6 +176,7 @@ export default function Expenses() {
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-foreground text-sm">{expense.description}</p>
                 <p className="text-xs text-muted-foreground">{expense.category} · {expense.date}</p>
+                <p className="text-xs text-muted-foreground">Recorded by {expense.recordedBy}</p>
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-destructive text-sm">-RWF {expense.amount.toLocaleString()}</span>

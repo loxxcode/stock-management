@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Search, Pencil, Trash2, Package, AlertCircle } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Plus, Search, Pencil, Trash2, Package, AlertCircle, FileSpreadsheet, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,12 +11,17 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatRwf, toRwf, type EntryCurrency } from "@/lib/currency";
 import { calculateProductTax } from "@/lib/productTax";
+import { readProductImportFile, type ProductImportResult } from "@/lib/productImport";
+import { toast } from "sonner";
 
 export default function Products() {
-  const { products, addProduct, updateProduct, deleteProduct } = useProducts();
+  const { products, addProduct, addProducts, updateProduct, deleteProduct } = useProducts();
   const { role, permissions } = useAuth();
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<ProductImportResult | null>(null);
   const [editing, setEditing] = useState<Product | null>(null);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [duplicateProduct, setDuplicateProduct] = useState<Product | null>(null);
@@ -35,8 +40,65 @@ export default function Products() {
   const filtered = products.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase())
   );
+  const { importableProducts, existingDuplicates } = useMemo(() => {
+    const existingNames = new Set(products.map((product) => product.name.trim().toLocaleLowerCase()));
+    const importable: NonNullable<typeof importResult>["products"] = [];
+    const duplicates: string[] = [];
+
+    (importResult?.products ?? []).forEach((product) => {
+      if (existingNames.has(product.name.trim().toLocaleLowerCase())) {
+        duplicates.push(product.name);
+      } else {
+        importable.push(product);
+      }
+    });
+
+    return { importableProducts: importable, existingDuplicates: duplicates };
+  }, [importResult, products]);
   const previewPriceRwf = toRwf(parseFloat(priceInput) || 0, priceCurrency);
   const previewTaxRwf = calculateProductTax(previewPriceRwf, isTaxable, parseFloat(taxRateInput) || 0);
+
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setImportLoading(true);
+    setImportResult(null);
+    try {
+      setImportResult(await readProductImportFile(file));
+    } catch (error) {
+      console.error("Could not read product spreadsheet:", error);
+      toast.error(error instanceof Error ? error.message : "Could not read the Excel file.");
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const handleImportProducts = async () => {
+    if (!importableProducts.length) return;
+
+    setImportLoading(true);
+    try {
+      const result = await addProducts(importableProducts);
+      if (result.error) {
+        toast.error(`Products were not imported: ${result.error}`);
+        return;
+      }
+
+      const rejectedCount = (importResult?.errors.length ?? 0) + existingDuplicates.length;
+      toast.success(
+        `Imported ${result.added} product${result.added === 1 ? "" : "s"}${rejectedCount ? `; skipped ${rejectedCount} row${rejectedCount === 1 ? "" : "s"}` : ""}.`
+      );
+      setImportDialogOpen(false);
+      setImportResult(null);
+    } catch (error) {
+      console.error("Could not import products:", error);
+      toast.error(error instanceof Error ? error.message : "Could not import products.");
+    } finally {
+      setImportLoading(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -117,6 +179,92 @@ export default function Products() {
               disabled={isAddingNew}
             />
           </div>
+          {canAdd && (
+            <Dialog
+              open={importDialogOpen}
+              onOpenChange={(open) => {
+                setImportDialogOpen(open);
+                if (!open) setImportResult(null);
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button type="button" variant="outline" className="shrink-0 gap-2">
+                  <FileSpreadsheet className="h-4 w-4" />
+                  <span className="hidden sm:inline">Import Excel</span>
+                  <span className="sm:hidden">Import</span>
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-[90vw] rounded-2xl sm:max-w-xl">
+                <DialogHeader>
+                  <DialogTitle>Import Products from Excel</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Upload an .xlsx file. Its first row must include Name, Price, and Stock (or Quantity).
+                    Category, Min Stock, Taxable, and Tax Rate are optional. Prices are treated as RWF.
+                  </p>
+                  <Input
+                    type="file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    onChange={handleImportFile}
+                    disabled={importLoading}
+                  />
+                  {importLoading && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                      Processing products...
+                    </div>
+                  )}
+                  {importResult && (
+                    <div className="max-h-64 space-y-3 overflow-y-auto rounded-lg border p-3">
+                      <p className="text-sm font-medium">
+                        {importableProducts.length} ready to import
+                        {importResult.errors.length > 0 && ` · ${importResult.errors.length} invalid rows`}
+                        {existingDuplicates.length > 0 && ` · ${existingDuplicates.length} existing products skipped`}
+                      </p>
+                      {existingDuplicates.length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Already in inventory: {existingDuplicates.slice(0, 5).join(", ")}
+                          {existingDuplicates.length > 5 ? ` and ${existingDuplicates.length - 5} more` : ""}
+                        </p>
+                      )}
+                      {importResult.errors.length > 0 && (
+                        <ul className="space-y-1 text-xs text-destructive">
+                          {importResult.errors.slice(0, 8).map((item) => (
+                            <li key={`${item.row}-${item.message}`}>Row {item.row}: {item.message}</li>
+                          ))}
+                          {importResult.errors.length > 8 && (
+                            <li>And {importResult.errors.length - 8} more invalid rows.</li>
+                          )}
+                        </ul>
+                      )}
+                      {importableProducts.length > 0 && (
+                        <ul className="space-y-1 text-xs text-muted-foreground">
+                          {importableProducts.slice(0, 5).map((product, index) => (
+                            <li key={`${product.name}-${index}`}>
+                              {product.name} · {formatRwf(product.price)} · Stock {product.stock}
+                            </li>
+                          ))}
+                          {importableProducts.length > 5 && (
+                            <li>And {importableProducts.length - 5} more products.</li>
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    onClick={handleImportProducts}
+                    disabled={importLoading || importableProducts.length === 0}
+                  >
+                    Import {importableProducts.length} Product{importableProducts.length === 1 ? "" : "s"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
           {canAdd && (
             <Dialog open={dialogOpen} onOpenChange={(o) => {
               setDialogOpen(o);

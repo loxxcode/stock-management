@@ -180,7 +180,7 @@ export default function Reports() {
 
     addLine("EXPENSE TRANSACTIONS", 13);
     filtered.expenses.forEach((expense, index) => {
-      addLine(`${index + 1}. ${expense.date} | ${expense.category} | ${money(expense.amount)} | ${expense.description || "No description"}`);
+      addLine(`${index + 1}. ${expense.date} | ${expense.category} | ${money(expense.amount)} | ${expense.description || "No description"} | Recorded by: ${expense.recordedBy}`);
     });
     if (filtered.expenses.length === 0) addLine("No expense transactions in this period.");
 
