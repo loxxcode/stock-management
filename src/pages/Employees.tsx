@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
-import { UserPlus, Users, Shield, Eye, ChevronRight, Trash2, Search, TrendingUp, Activity } from "lucide-react";
+import { UserPlus, Users, Shield, Eye, ChevronRight, Trash2, TrendingUp, Activity, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import SearchInput from "@/components/SearchInput";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import PageHeader from "@/components/PageHeader";
@@ -10,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 interface EmployeeWithProfile {
   employee_user_id: string;
@@ -100,10 +102,14 @@ export default function Employees() {
   const [createOpen, setCreateOpen] = useState(false);
   const [permOpen, setPermOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [listLoading, setListLoading] = useState(true);
+  const [deletingEmployeeId, setDeletingEmployeeId] = useState<string | null>(null);
+  const [updatingPermissionId, setUpdatingPermissionId] = useState<string | null>(null);
   const [fullAccess, setFullAccess] = useState(false);
   const [perms, setPerms] = useState({ ...FULL_ACCESS_PERMISSIONS });
   const [searchQuery, setSearchQuery] = useState("");
   const [employeePerformance, setEmployeePerformance] = useState<Record<string, any>>({});
+  const debouncedSearchQuery = useDebouncedValue(searchQuery);
 
   useEffect(() => {
     if (role !== "manager" && role !== "admin") return;
@@ -111,37 +117,49 @@ export default function Employees() {
   }, [role]);
 
   const fetchEmployees = async () => {
-    if (!user) return;
-    const { data: empPerms } = await (supabase
-      .from("employee_permissions" as any) as any)
-      .select("*")
-      .eq("manager_user_id", user.id);
-
-    if (!empPerms?.length) {
-      setEmployees([]);
+    if (!user) {
+      setListLoading(false);
       return;
     }
+    setListLoading(true);
+    try {
+      const { data: empPerms, error: permissionsError } = await (supabase
+        .from("employee_permissions" as any) as any)
+        .select("*")
+        .eq("manager_user_id", user.id);
+      if (permissionsError) throw permissionsError;
 
-    const empIds = empPerms.map((e) => e.employee_user_id);
-    const { data: profiles } = await (supabase
-      .from("profiles" as any) as any)
-      .select("*")
-      .in("user_id", empIds);
+      if (!empPerms?.length) {
+        setEmployees([]);
+        return;
+      }
 
-    const result: EmployeeWithProfile[] = empPerms.map((ep) => {
-      const prof = profiles?.find((p) => p.user_id === ep.employee_user_id);
-      return {
-        employee_user_id: ep.employee_user_id,
-        full_name: prof?.full_name || "Unknown Employee",
-        employee_name: prof?.full_name || "Unknown Employee",
-        email: prof?.phone || "",
-        ...dbToUiPermissions(ep),
-      };
-    });
+      const empIds = empPerms.map((e) => e.employee_user_id);
+      const { data: profiles, error: profilesError } = await (supabase
+        .from("profiles" as any) as any)
+        .select("*")
+        .in("user_id", empIds);
+      if (profilesError) throw profilesError;
 
-    setEmployees(result);
-    // Fetch performance data for all employees
-    fetchEmployeePerformance(result);
+      const result: EmployeeWithProfile[] = empPerms.map((ep) => {
+        const prof = profiles?.find((p) => p.user_id === ep.employee_user_id);
+        return {
+          employee_user_id: ep.employee_user_id,
+          full_name: prof?.full_name || "Unknown Employee",
+          employee_name: prof?.full_name || "Unknown Employee",
+          email: prof?.phone || "",
+          ...dbToUiPermissions(ep),
+        };
+      });
+
+      setEmployees(result);
+      fetchEmployeePerformance(result);
+    } catch (error) {
+      console.error("Failed to load employees:", error);
+      toast.error("Failed to load employees.");
+    } finally {
+      setListLoading(false);
+    }
   };
 
   const fetchEmployeePerformance = async (employeeList: EmployeeWithProfile[]) => {
@@ -179,15 +197,15 @@ export default function Employees() {
 
   // Filter employees based on search query
   const filteredEmployees = useMemo(() => {
-    if (!searchQuery.trim()) return employees;
+    if (!debouncedSearchQuery.trim()) return employees;
     return employees.filter(emp => {
       const name = (emp.employee_name || emp.full_name).toLowerCase();
       return (
-        name.includes(searchQuery.toLowerCase()) ||
-        emp.email.toLowerCase().includes(searchQuery.toLowerCase())
+        name.includes(debouncedSearchQuery.toLowerCase()) ||
+        emp.email.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
       );
     });
-  }, [employees, searchQuery]);
+  }, [employees, debouncedSearchQuery]);
 
   const waitForEmployeeSetup = async (employeeUserId: string) => {
     const retries = 30;
@@ -213,105 +231,115 @@ export default function Employees() {
     e.preventDefault();
     setLoading(true);
 
-    const fd = new FormData(e.currentTarget);
-    const email = fd.get("email") as string;
-    const password = fd.get("password") as string;
-    const fullName = fd.get("fullName") as string;
+    try {
+      const fd = new FormData(e.currentTarget);
+      const email = fd.get("email") as string;
+      const password = fd.get("password") as string;
+      const fullName = fd.get("fullName") as string;
 
-    // Save manager's current session before signUp switches it
-    const { data: { session: managerSession } } = await supabase.auth.getSession();
-
-    // Create the employee account via Supabase auth
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-          role: "employee",
+      const { data: { session: managerSession } } = await supabase.auth.getSession();
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+            role: "employee",
+          },
         },
-      },
-    });
+      });
 
-    if (signUpError || !signUpData.user) {
-      toast.error(signUpError?.message || "Failed to create employee account");
+      if (signUpError || !signUpData.user) {
+        if (managerSession) {
+          await supabase.auth.setSession({
+            access_token: managerSession.access_token,
+            refresh_token: managerSession.refresh_token,
+          });
+        }
+        throw signUpError ?? new Error("Failed to create employee account");
+      }
+
+      const employeeUserId = signUpData.user.id;
+
       if (managerSession) {
         await supabase.auth.setSession({
           access_token: managerSession.access_token,
           refresh_token: managerSession.refresh_token,
         });
       }
-      setLoading(false);
-      return;
-    }
 
-    const employeeUserId = signUpData.user.id;
+      const setupReady = await waitForEmployeeSetup(employeeUserId);
 
-    if (managerSession) {
-      await supabase.auth.setSession({
-        access_token: managerSession.access_token,
-        refresh_token: managerSession.refresh_token,
-      });
-    }
+      const permissionsData = uiToDbPermissions(fullAccess ? { ...FULL_ACCESS_PERMISSIONS } : { ...perms });
 
-    const setupReady = await waitForEmployeeSetup(employeeUserId);
+      const { error: permError } = await (supabase.from("employee_permissions" as any) as any).upsert(
+        {
+          employee_user_id: employeeUserId,
+          manager_user_id: user!.id,
+          ...permissionsData,
+        },
+        { onConflict: "employee_user_id" }
+      );
 
-    const permissionsData = uiToDbPermissions(fullAccess ? { ...FULL_ACCESS_PERMISSIONS } : { ...perms });
-
-    const { error: permError } = await (supabase.from("employee_permissions" as any) as any).upsert(
-      {
-        employee_user_id: employeeUserId,
-        manager_user_id: user!.id,
-        ...permissionsData,
-      },
-      { onConflict: "employee_user_id" }
-    );
-
-    if (permError) {
-      console.error("Employee permission insert failed:", permError);
-      toast.error("Account created but failed to set permissions: " + permError.message);
-    } else {
-      if (setupReady) {
-        toast.success(`Employee ${fullName} created! They'll receive a confirmation email.`);
+      if (permError) {
+        console.error("Employee permission insert failed:", permError);
+        toast.error("Account created but failed to set permissions: " + permError.message);
       } else {
-        toast.success(`Employee ${fullName} created! Setup is still provisioning and may take a few more seconds.`);
+        setCreateOpen(false);
+        setFullAccess(false);
+        setPerms({ ...FULL_ACCESS_PERMISSIONS });
+        await fetchEmployees();
+        if (setupReady) {
+          toast.success(`Employee ${fullName} created! They'll receive a confirmation email.`);
+        } else {
+          toast.success(`Employee ${fullName} created! Setup is still provisioning and may take a few more seconds.`);
+        }
       }
+    } catch (error) {
+      console.error("Failed to create employee:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to create employee account.");
+    } finally {
+      setLoading(false);
     }
-
-    setCreateOpen(false);
-    setLoading(false);
-    setFullAccess(false);
-    setPerms({ ...FULL_ACCESS_PERMISSIONS });
-    fetchEmployees();
   };
 
   const handleUpdatePermissions = async (employeeUserId: string, newPerms: Partial<typeof FULL_ACCESS_PERMISSIONS>) => {
-    const { error } = await (supabase
-      .from("employee_permissions" as any) as any)
-      .update(uiToDbPermissions(newPerms))
-      .eq("employee_user_id", employeeUserId)
-      .eq("manager_user_id", user!.id);
+    setUpdatingPermissionId(employeeUserId);
+    try {
+      const { error } = await (supabase
+        .from("employee_permissions" as any) as any)
+        .update(uiToDbPermissions(newPerms))
+        .eq("employee_user_id", employeeUserId)
+        .eq("manager_user_id", user!.id);
 
-    if (error) {
-      toast.error("Failed to update permissions");
-    } else {
+      if (error) throw error;
       toast.success("Permissions updated");
-      fetchEmployees();
+      await fetchEmployees();
+    } catch (error) {
+      console.error("Failed to update permissions:", error);
+      toast.error("Failed to update permissions");
+    } finally {
+      setUpdatingPermissionId(null);
     }
   };
 
   const handleDeleteEmployee = async (employeeUserId: string) => {
-    const { error } = await (supabase
-      .from("employee_permissions" as any) as any)
-      .delete()
-      .eq("employee_user_id", employeeUserId)
-      .eq("manager_user_id", user!.id);
+    setDeletingEmployeeId(employeeUserId);
+    try {
+      const { error } = await (supabase
+        .from("employee_permissions" as any) as any)
+        .delete()
+        .eq("employee_user_id", employeeUserId)
+        .eq("manager_user_id", user!.id);
 
-    if (error) {
-      toast.error("Failed to remove employee");
-    } else {
+      if (error) throw error;
       toast.success("Employee removed");
-      fetchEmployees();
+      await fetchEmployees();
+    } catch (error) {
+      console.error("Failed to remove employee:", error);
+      toast.error("Failed to remove employee");
+    } finally {
+      setDeletingEmployeeId(null);
     }
   };
 
@@ -332,15 +360,12 @@ export default function Employees() {
 
       <div className="px-4 space-y-4 mt-2">
         {/* Search Bar */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search employees by name or email..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
-          />
-        </div>
+        <SearchInput
+          placeholder="Search employees by name or email..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          isSearching={searchQuery !== debouncedSearchQuery}
+        />
         {/* Create Employee Button */}
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
@@ -407,8 +432,8 @@ export default function Employees() {
                 )}
               </div>
 
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Creating..." : "Create Employee"}
+              <Button type="submit" className="w-full" loading={loading}>
+                {loading ? "Creating Employee..." : "Create Employee"}
               </Button>
             </form>
           </DialogContent>
@@ -421,7 +446,13 @@ export default function Employees() {
             Team Members ({filteredEmployees.length}{searchQuery && ` of ${employees.length}`})
           </h3>
 
-          {filteredEmployees.length === 0 ? (
+          {listLoading ? (
+            <div className="space-y-3" role="status" aria-label="Loading employees">
+              {Array.from({ length: 3 }, (_, index) => (
+                <div key={index} className="h-28 animate-pulse rounded-xl border border-border bg-muted/50" />
+              ))}
+            </div>
+          ) : filteredEmployees.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
               {searchQuery ? "No employees match your search." : "No employees yet. Add your first team member above."}
             </p>
@@ -475,9 +506,12 @@ export default function Employees() {
                           size="icon"
                           className="text-destructive"
                           onClick={() => handleDeleteEmployee(emp.employee_user_id)}
+                          disabled={deletingEmployeeId === emp.employee_user_id}
                           title="Remove Employee"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          {deletingEmployeeId === emp.employee_user_id
+                            ? <LoaderCircle className="h-4 w-4 animate-spin" />
+                            : <Trash2 className="h-4 w-4" />}
                         </Button>
                       </div>
                     </div>
@@ -506,6 +540,8 @@ export default function Employees() {
                             variant="outline"
                             size="sm"
                             onClick={() => handleUpdatePermissions(emp.employee_user_id, FULL_ACCESS_PERMISSIONS)}
+                            loading={updatingPermissionId === emp.employee_user_id}
+                            disabled={updatingPermissionId !== null}
                             className="text-xs h-7"
                           >
                             Grant All
@@ -520,6 +556,7 @@ export default function Employees() {
                             <Switch
                               checked={emp[key as keyof typeof emp] as boolean}
                               onCheckedChange={(v) => handleUpdatePermissions(emp.employee_user_id, { [key]: v })}
+                              disabled={updatingPermissionId !== null}
                             />
                           </div>
                         ))}

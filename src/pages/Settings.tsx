@@ -32,44 +32,47 @@ export default function Settings() {
   const handleUpdateProfile = async () => {
     if (!user) return;
     setLoading(true);
-    const { error } = await (supabase
-      .from("profiles" as any) as any)
-      .update({ full_name: fullName, phone, location, business_name: businessName })
-      .eq("user_id", user.id);
-    setLoading(false);
-    if (error) {
-      toast.error("Failed to update profile");
-    } else {
+    try {
+      const { error } = await (supabase
+        .from("profiles" as any) as any)
+        .update({ full_name: fullName, phone, location, business_name: businessName })
+        .eq("user_id", user.id);
+      if (error) throw error;
       toast.success("Profile updated");
       await refreshProfile();
+    } catch (error) {
+      console.error("Failed to update profile:", error);
+      toast.error("Failed to update profile");
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleChangePassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setLoading(true);
     const fd = new FormData(e.currentTarget);
     const newPassword = fd.get("newPassword") as string;
     const confirmPassword = fd.get("confirmPassword") as string;
 
     if (newPassword !== confirmPassword) {
       toast.error("Passwords do not match");
-      setLoading(false);
       return;
     }
     if (newPassword.length < 6) {
       toast.error("Password must be at least 6 characters");
-      setLoading(false);
       return;
     }
 
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    setLoading(false);
-    if (error) {
-      toast.error(error.message);
-    } else {
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
       toast.success("Password changed successfully");
       setView("main");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update password.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -79,37 +82,43 @@ export default function Settings() {
       return;
     }
     setLoading(true);
+    try {
+      const { data: empUserId, error: lookupErr } = await (supabase.rpc as any)(
+        "get_employee_user_id_by_email",
+        { _email: deleteEmail.trim() }
+      );
+      if (lookupErr) throw lookupErr;
+      if (!empUserId) throw new Error("Employee not found with that email.");
+      if (!user) throw new Error("You must be signed in to remove an employee.");
 
-    const { data: empUserId, error: lookupErr } = await (supabase.rpc as any)(
-      "get_employee_user_id_by_email",
-      { _email: deleteEmail.trim() }
-    );
-
-    if (lookupErr || !empUserId) {
-      toast.error("Employee not found with that email");
-      setLoading(false);
-      return;
-    }
-
-    const { error } = await (supabase
-      .from("employee_permissions" as any) as any)
-      .delete()
-      .eq("employee_user_id", empUserId)
-      .eq("manager_user_id", user!.id);
-
-    setLoading(false);
-    if (error) {
-      toast.error("Failed to remove employee");
-    } else {
+      const { error } = await (supabase
+        .from("employee_permissions" as any) as any)
+        .delete()
+        .eq("employee_user_id", empUserId)
+        .eq("manager_user_id", user.id);
+      if (error) throw error;
       toast.success("Employee removed successfully");
       setDeleteConfirmOpen(false);
       setDeleteEmail("");
+    } catch (error) {
+      console.error("Failed to remove employee:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to remove employee");
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    await signOut();
-    navigate("/login");
+    setLoading(true);
+    try {
+      await signOut();
+      navigate("/login");
+    } catch (error) {
+      console.error("Failed to log out:", error);
+      toast.error("Failed to log out. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (view === "profile") {
@@ -142,7 +151,7 @@ export default function Settings() {
             )}
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setView("main")}>Cancel</Button>
-              <Button className="flex-1" onClick={handleUpdateProfile} disabled={loading}>
+              <Button className="flex-1" onClick={handleUpdateProfile} loading={loading}>
                 <Save className="h-4 w-4 mr-1" />
                 {loading ? "Saving..." : "Save"}
               </Button>
@@ -234,7 +243,7 @@ export default function Settings() {
                       <Button variant="outline" className="flex-1" onClick={() => setDeleteConfirmOpen(false)}>
                         Cancel
                       </Button>
-                      <Button variant="destructive" className="flex-1" onClick={handleDeleteEmployeeAccount} disabled={loading}>
+                      <Button variant="destructive" className="flex-1" onClick={handleDeleteEmployeeAccount} loading={loading}>
                         {loading ? "Removing..." : "Remove Employee"}
                       </Button>
                     </div>
@@ -278,7 +287,7 @@ export default function Settings() {
             </div>
             <div className="flex gap-2">
               <Button type="button" variant="outline" className="flex-1" onClick={() => setView("security")}>Cancel</Button>
-              <Button type="submit" className="flex-1" disabled={loading}>
+              <Button type="submit" className="flex-1" loading={loading}>
                 {loading ? "Updating..." : "Update Password"}
               </Button>
             </div>
@@ -334,12 +343,13 @@ export default function Settings() {
         {/* Logout */}
         <button
           onClick={handleLogout}
+          disabled={loading}
           className="flex items-center gap-3 w-full p-4 rounded-xl border border-destructive/30 bg-destructive/5 mt-4"
         >
           <div className="p-2 rounded-lg bg-destructive/10">
-            <LogOut className="h-5 w-5 text-destructive" />
+            {loading ? <span className="block h-5 w-5 animate-spin rounded-full border-2 border-destructive border-r-transparent" /> : <LogOut className="h-5 w-5 text-destructive" />}
           </div>
-          <span className="font-semibold text-sm text-destructive">Log Out</span>
+          <span className="font-semibold text-sm text-destructive">{loading ? "Logging out..." : "Log Out"}</span>
         </button>
       </div>
     </div>

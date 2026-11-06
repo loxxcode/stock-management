@@ -42,6 +42,7 @@ export default function EmployeeActivity() {
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const [employeeName, setEmployeeName] = useState("");
   const [period, setPeriod] = useState("today");
+  const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<any[]>([]);
   const [salesCount, setSalesCount] = useState(0);
   const [stockInQuantity, setStockInQuantity] = useState(0);
@@ -50,9 +51,18 @@ export default function EmployeeActivity() {
 
   useEffect(() => {
     if (!employeeId || (role !== "manager" && role !== "admin")) return;
-    fetchEmployeeData();
-    fetchProducts();
-    fetchActivity();
+    let active = true;
+    setLoading(true);
+    Promise.all([fetchEmployeeData(), fetchProducts(), fetchActivity()])
+      .catch((error) => {
+        console.error("Failed to load employee activity:", error);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [employeeId, period, role]);
 
   const fetchEmployeeData = async () => {
@@ -213,19 +223,19 @@ export default function EmployeeActivity() {
         {/* Performance Summary */}
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl border border-border bg-card p-3 text-center">
-            <p className="text-2xl font-bold text-foreground">{totalSales}</p>
+            {loading ? <div className="mx-auto h-8 w-16 animate-pulse rounded bg-muted" /> : <p className="text-2xl font-bold text-foreground">{totalSales}</p>}
             <p className="text-xs text-muted-foreground">Sales Made</p>
           </div>
           <div className="rounded-xl border border-border bg-card p-3 text-center">
-            <p className="text-2xl font-bold text-success">${totalRevenue.toFixed(2)}</p>
+            {loading ? <div className="mx-auto h-8 w-24 animate-pulse rounded bg-muted" /> : <p className="text-2xl font-bold text-success">${totalRevenue.toFixed(2)}</p>}
             <p className="text-xs text-muted-foreground">Revenue</p>
           </div>
           <div className="rounded-xl border border-border bg-card p-3 text-center">
-            <p className="text-2xl font-bold text-foreground">{totalStockIn}</p>
+            {loading ? <div className="mx-auto h-8 w-16 animate-pulse rounded bg-muted" /> : <p className="text-2xl font-bold text-foreground">{totalStockIn}</p>}
             <p className="text-xs text-muted-foreground">Stock IN</p>
           </div>
           <div className="rounded-xl border border-border bg-card p-3 text-center">
-            <p className="text-2xl font-bold text-foreground">{totalStockOut}</p>
+            {loading ? <div className="mx-auto h-8 w-16 animate-pulse rounded bg-muted" /> : <p className="text-2xl font-bold text-foreground">{totalStockOut}</p>}
             <p className="text-xs text-muted-foreground">Stock OUT</p>
           </div>
         </div>
@@ -237,7 +247,11 @@ export default function EmployeeActivity() {
             Current Stock Levels ({products.length} products)
           </h3>
 
-          {products.length === 0 ? (
+          {loading ? (
+            <div className="space-y-2" role="status" aria-label="Loading stock levels">
+              {Array.from({ length: 3 }, (_, index) => <div key={index} className="h-12 animate-pulse rounded-lg bg-muted" />)}
+            </div>
+          ) : products.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">No products found.</p>
           ) : (
             <div className="space-y-2 max-h-60 overflow-y-auto">
@@ -266,7 +280,11 @@ export default function EmployeeActivity() {
             Activity Log ({activities.length})
           </h3>
 
-          {activities.length === 0 ? (
+          {loading ? (
+            <div className="space-y-3" role="status" aria-label="Loading activity">
+              {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-12 animate-pulse rounded-lg bg-muted" />)}
+            </div>
+          ) : activities.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">No activity in this period.</p>
           ) : (
             <div className="space-y-3">

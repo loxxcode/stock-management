@@ -25,30 +25,33 @@ export default function Register() {
     const phone = fd.get("phone") as string;
     const location = fd.get("location") as string;
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-          business_name: businessName,
-          phone,
-          location,
-          role: "manager",
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+            business_name: businessName,
+            phone,
+            location,
+            role: "manager",
+          },
         },
-      },
-    });
+      });
 
-    setLoading(false);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
 
-    if (error) {
-      toast.error(error.message);
-      return;
+      toast.success("Account created! Please check your email and click the confirmation link before signing in.", { duration: 8000 });
+      navigate("/login");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to create the account. Please try again.");
+    } finally {
+      setLoading(false);
     }
-
-    // Check if email confirmation is required
-    toast.success("Account created! Please check your email and click the confirmation link before signing in.", { duration: 8000 });
-    navigate("/login");
   };
 
   return (
@@ -121,7 +124,7 @@ export default function Register() {
               </div>
             </div>
 
-            <Button type="submit" className="w-full font-semibold" disabled={loading}>
+            <Button type="submit" className="w-full font-semibold" loading={loading}>
               {loading ? "Creating Account..." : "Create Manager Account"}
             </Button>
           </form>

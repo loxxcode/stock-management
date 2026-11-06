@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
-import { FileText, Search, Filter, Download, Trash2, RefreshCw, Calendar, User, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
+import { FileText, Filter, Download, Trash2, RefreshCw, Calendar, User, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import SearchInput from "@/components/SearchInput";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import PageHeader from "@/components/PageHeader";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 interface AuditLog {
   id: string;
@@ -28,7 +30,9 @@ export default function AuditLogs() {
   const { role } = useAuth();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingLog, setDeletingLog] = useState(false);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
   const [actionFilter, setActionFilter] = useState<string>("all");
   const [entityFilter, setEntityFilter] = useState<string>("all");
   const [roleFilter, setRoleFilter] = useState<string>("all");
@@ -73,7 +77,7 @@ export default function AuditLogs() {
 
   const handleDeleteLog = async () => {
     if (!deleteLogId) return;
-    setLoading(true);
+    setDeletingLog(true);
     try {
       const { error } = await supabase
         .from("audit_logs" as any)
@@ -84,11 +88,11 @@ export default function AuditLogs() {
       toast.success("Audit log deleted");
       setDeleteDialogOpen(false);
       setDeleteLogId(null);
-      fetchLogs();
+      await fetchLogs();
     } catch (error: any) {
       toast.error("Failed to delete log: " + error.message);
     } finally {
-      setLoading(false);
+      setDeletingLog(false);
     }
   };
 
@@ -154,11 +158,11 @@ export default function AuditLogs() {
 
   const filteredLogs = logs.filter((log) => {
     const matchesSearch =
-      search === "" ||
-      log.description?.toLowerCase().includes(search.toLowerCase()) ||
-      log.user_name.toLowerCase().includes(search.toLowerCase()) ||
-      log.entity?.toLowerCase().includes(search.toLowerCase()) ||
-      log.entity_id?.toLowerCase().includes(search.toLowerCase());
+      debouncedSearch === "" ||
+      log.description?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      log.user_name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      log.entity?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      log.entity_id?.toLowerCase().includes(debouncedSearch.toLowerCase());
 
     const matchesAction = actionFilter === "all" || log.action === actionFilter;
     const matchesEntity = entityFilter === "all" || log.entity === entityFilter;
@@ -183,15 +187,13 @@ export default function AuditLogs() {
         {/* Filters */}
         <div className="rounded-xl border border-border bg-card p-4 space-y-3">
           <div className="flex gap-2">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search logs..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
+            <SearchInput
+              placeholder="Search logs..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1"
+              isSearching={search !== debouncedSearch}
+            />
             <Button variant="outline" onClick={fetchLogs} disabled={loading}>
               <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
             </Button>
@@ -403,8 +405,8 @@ export default function AuditLogs() {
               <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button variant="destructive" onClick={handleDeleteLog} disabled={loading}>
-                {loading ? "Deleting..." : "Delete"}
+              <Button variant="destructive" onClick={handleDeleteLog} loading={deletingLog}>
+                {deletingLog ? "Deleting..." : "Delete"}
               </Button>
             </DialogFooter>
           </DialogContent>

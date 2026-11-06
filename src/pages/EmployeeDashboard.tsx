@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { ShoppingCart, Users, TrendingUp, Package, Clock, CheckCircle, AlertTriangle } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
@@ -7,9 +6,10 @@ import { useAuth } from "@/contexts/AuthContext";
 
 export default function EmployeeDashboard() {
   const { user, role } = useAuth();
-  const { products } = useProducts();
-  const { sales } = useSales();
-  const { credits } = useCustomerCredits();
+  const { products, loading: productsLoading } = useProducts();
+  const { sales, loading: salesLoading } = useSales();
+  const { credits, loading: creditsLoading } = useCustomerCredits();
+  const dashboardLoading = productsLoading || salesLoading || creditsLoading;
 
   const today = new Date().toISOString().split("T")[0];
   const todaySales = sales.filter(s => s.date === today);
@@ -25,13 +25,23 @@ export default function EmployeeDashboard() {
         showNotification 
       />
 
-      <div className="px-4 space-y-4 mt-2">
+      {dashboardLoading ? (
+        <div className="px-4 space-y-4 mt-2" role="status" aria-label="Loading dashboard">
+          <div className="h-24 animate-pulse rounded-2xl bg-muted" />
+          <div className="grid grid-cols-2 gap-3">
+            {Array.from({ length: 4 }, (_, index) => (
+              <div key={index} className="h-24 animate-pulse rounded-xl bg-muted" />
+            ))}
+          </div>
+          <div className="h-44 animate-pulse rounded-xl bg-muted" />
+        </div>
+      ) : <div className="px-4 space-y-4 mt-2">
         {/* Welcome Banner */}
         <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
           <div className="flex items-center gap-2 text-primary">
             <CheckCircle className="h-4 w-4" />
             <span className="text-xs font-semibold uppercase tracking-[0.2em]">Welcome Back</span>
-          </div>
+          </div>}
           <div className="mt-3">
             <p className="text-lg font-bold text-foreground">
               {user?.user_metadata?.full_name || user?.email || 'Employee'}

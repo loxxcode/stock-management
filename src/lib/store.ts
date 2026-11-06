@@ -261,22 +261,24 @@ export function useProducts() {
       })
       .select()
       .single();
-    if (!error && data) {
-      await logAuditEvent('create', 'product', data.id, null, data, `Created product: ${data.name}`);
-      setProducts((prev) => [
-        {
-          id: data.id,
-          name: data.name,
-          price: Number(data.price),
-          stock: Number(data.stock),
-          category: data.category ?? "General",
-          minStock: Number(data.min_stock ?? 10),
-          isTaxable: Boolean(data.is_taxable ?? false),
-          taxRate: Number(data.tax_rate ?? 0),
-        },
-        ...prev,
-      ]);
+    if (error || !data) {
+      console.error("Error adding product:", error);
+      return null;
     }
+
+    await logAuditEvent('create', 'product', data.id, null, data, `Created product: ${data.name}`);
+    const product: Product = {
+      id: data.id,
+      name: data.name,
+      price: Number(data.price),
+      stock: Number(data.stock),
+      category: data.category ?? "General",
+      minStock: Number(data.min_stock ?? 10),
+      isTaxable: Boolean(data.is_taxable ?? false),
+      taxRate: Number(data.tax_rate ?? 0),
+    };
+    setProducts((prev) => [product, ...prev]);
+    return product;
   };
 
   const addProducts = async (newProducts: ImportedProduct[]) => {
@@ -334,7 +336,7 @@ export function useProducts() {
   const updateProduct = async (id: string, p: Partial<Product>): Promise<boolean> => {
     const userId = await getUserId();
     const role = await getUserRole();
-    if (!userId) return;
+    if (!userId) return false;
 
     const currentStock = products.find((product) => product.id === id)?.stock;
     const changesStock = p.stock !== undefined && currentStock !== undefined && p.stock !== currentStock;
@@ -348,20 +350,20 @@ export function useProducts() {
     const isManager = role === 'manager' || role === 'admin';
     if (changesProductDetails && !isManager && !(await hasPermission('can_edit_product'))) {
       console.error('Permission denied: cannot edit product details');
-      return;
+      return false;
     }
 
     if (changesStock && !isManager) {
       const stockPermission = p.stock! > currentStock! ? 'can_add_stock' : 'can_remove_stock';
       if (!(await hasPermission(stockPermission))) {
         console.error(`Permission denied: cannot ${stockPermission === 'can_add_stock' ? 'add' : 'remove'} stock`);
-        return;
+        return false;
       }
     }
 
     if (!changesProductDetails && !changesStock) {
       console.error('Product update contains no authorized changes');
-      return;
+      return false;
     }
 
     const updates: any = {};
@@ -388,21 +390,23 @@ export function useProducts() {
 
   const deleteProduct = async (id: string) => {
     const userId = await getUserId();
-    const role = await getUserRole();
-    if (!userId) return;
+    if (!userId) return false;
     
     // Check permission for deleting products
     const canDelete = await hasPermission('can_delete_product');
     if (!canDelete) {
       console.error('Permission denied: cannot delete products');
-      return;
+      return false;
     }
 
     const { error } = await db.from("products").delete().eq("id", id);
-    if (!error) {
-      await logAuditEvent('delete', 'product', id, null, null, `Deleted product: ${id}`);
-      setProducts((prev) => prev.filter((item) => item.id !== id));
+    if (error) {
+      console.error("Error deleting product:", error);
+      return false;
     }
+    await logAuditEvent('delete', 'product', id, null, null, `Deleted product: ${id}`);
+    setProducts((prev) => prev.filter((item) => item.id !== id));
+    return true;
   };
 
   return { products, addProduct, addProducts, updateProduct, deleteProduct, setProducts, loading };
@@ -477,16 +481,16 @@ export function useSales() {
     };
   }, [fetchSales]);
 
-  const addSale = async (s: Omit<Sale, "id">) => {
+  const addSale = async (s: Omit<Sale, "id">): Promise<boolean> => {
     const userId = await getUserId();
     const role = await getUserRole();
-    if (!userId) return;
+    if (!userId) return false;
     
     // Check permission for recording sales
     const canRecord = await hasPermission('can_record_sales');
     if (!canRecord) {
       console.error('Permission denied: cannot record sales');
-      return;
+      return false;
     }
 
     const fullName = s.employeeName || (await getUserFullName()) || "Unknown";
@@ -538,7 +542,10 @@ export function useSales() {
         },
         ...prev,
       ]);
+      return true;
     }
+    console.error("Error recording sale:", error);
+    return false;
   };
 
   return { sales, addSale, loading };
@@ -665,9 +672,9 @@ export function useCustomerCredits() {
     };
   }, [fetchCredits]);
 
-  const addCustomerCredit = async (c: Omit<CustomerCredit, "id" | "status" | "paidAmount" > & { paidAmount?: number; status?: "open" | "partial" | "paid" }) => {
+  const addCustomerCredit = async (c: Omit<CustomerCredit, "id" | "status" | "paidAmount" > & { paidAmount?: number; status?: "open" | "partial" | "paid" }): Promise<boolean> => {
     const userId = await getUserId();
-    if (!userId) return;
+    if (!userId) return false;
     const fullName = c.employeeName || (await getUserFullName()) || "Unknown";
     const amountDue = Number(c.amountDue ?? 0);
     const paidAmount = Number(c.paidAmount ?? 0);
@@ -692,8 +699,12 @@ export function useCustomerCredits() {
       .select()
       .single();
 
-    if (!error && data) {
-      await db.from("sales").insert({
+    if (error || !data) {
+      console.error("Error recording customer credit:", error);
+      return false;
+    }
+
+    const { error: saleError } = await db.from("sales").insert({
         product_id: null,
         product_name: `Loan - ${c.customerName}`,
         quantity: c.quantity,
@@ -704,6 +715,7 @@ export function useCustomerCredits() {
         customer_name: c.customerName,
         user_id: userId,
       });
+    if (saleError) console.error("Customer credit was recorded, but its sales summary was not:", saleError);
       setCredits((prev) => [
         {
           id: data.id,
@@ -720,12 +732,12 @@ export function useCustomerCredits() {
         },
         ...prev,
       ]);
-    }
+    return true;
   };
 
-  const updateCustomerCredit = async (id: string, updates: Partial<Pick<CustomerCredit, "amountDue" | "paidAmount" | "status">>) => {
+  const updateCustomerCredit = async (id: string, updates: Partial<Pick<CustomerCredit, "amountDue" | "paidAmount" | "status">>): Promise<boolean> => {
     const userId = await getUserId();
-    if (!userId) return;
+    if (!userId) return false;
 
     const payload: any = {};
     if (updates.amountDue !== undefined) payload.amount_due = updates.amountDue;
@@ -750,8 +762,11 @@ export function useCustomerCredits() {
       .select()
       .single();
 
-    if (!error && data) {
-      setCredits((prev) =>
+    if (error || !data) {
+      console.error("Error updating customer credit:", error);
+      return false;
+    }
+    setCredits((prev) =>
         prev.map((credit) =>
           credit.id === id
             ? {
@@ -762,16 +777,16 @@ export function useCustomerCredits() {
               }
             : credit
         )
-      );
-    }
+    );
+    return true;
   };
 
-  const recordPayment = async (creditId: string, amount: number, employeeName?: string, note?: string) => {
+  const recordPayment = async (creditId: string, amount: number, employeeName?: string, note?: string): Promise<boolean> => {
     const userId = await getUserId();
-    if (!userId || amount <= 0) return;
+    if (!userId || amount <= 0) return false;
 
     const currentCredit = credits.find((credit) => credit.id === creditId);
-    if (!currentCredit) return;
+    if (!currentCredit) return false;
 
     const fullName = employeeName || (await getUserFullName()) || "Unknown";
     const paidOn = new Date().toISOString().split("T")[0];
@@ -789,15 +804,22 @@ export function useCustomerCredits() {
       .select()
       .single();
 
-    if (error || !data) return;
+    if (error || !data) {
+      console.error("Error recording customer credit payment:", error);
+      return false;
+    }
 
     const nextPaidAmount = Number(currentCredit.paidAmount || 0) + amount;
     const nextStatus = getCreditStatus(currentCredit.amountDue, nextPaidAmount);
 
-    await updateCustomerCredit(creditId, {
+    const creditUpdated = await updateCustomerCredit(creditId, {
       paidAmount: nextPaidAmount,
       status: nextStatus,
     });
+    if (!creditUpdated) {
+      console.error("Customer payment was recorded, but the credit balance could not be updated.");
+      return false;
+    }
 
     const paymentEntry: CustomerCreditPayment = {
       id: data.id,
@@ -813,7 +835,7 @@ export function useCustomerCredits() {
       [creditId]: [paymentEntry, ...(prev[creditId] ?? [])],
     }));
 
-    await db.from("sales").insert({
+    const { error: saleError } = await db.from("sales").insert({
       product_id: null,
       product_name: `Loan payment - ${currentCredit.customerName}`,
       quantity: 1,
@@ -822,6 +844,8 @@ export function useCustomerCredits() {
       employee_name: fullName,
       user_id: userId,
     });
+    if (saleError) console.error("Customer payment was recorded, but its sales summary was not:", saleError);
+    return true;
   };
 
   return { credits, paymentsByCredit, addCustomerCredit, updateCustomerCredit, recordPayment, fetchCreditPayments, loading };
@@ -911,13 +935,13 @@ export function useExpenses() {
   const addExpense = async (e: Omit<Expense, "id" | "recordedBy">) => {
     const userId = await getUserId();
     const role = await getUserRole();
-    if (!userId) return;
+    if (!userId) return false;
 
     // Check permission for adding expenses
     const canAdd = await hasPermission('can_add_expenses');
     if (!canAdd) {
       console.error('Permission denied: cannot add expenses');
-      return;
+      return false;
     }
 
     const recordedBy = (await getUserFullName())?.trim() || "Unknown user";
@@ -932,9 +956,12 @@ export function useExpenses() {
       })
       .select()
       .single();
-    if (!error && data) {
-      await logAuditEvent('create', 'expense', data.id, null, data, `Created expense: ${data.category}`);
-      setExpenses((prev) => [
+    if (error || !data) {
+      console.error("Error adding expense:", error);
+      return false;
+    }
+    await logAuditEvent('create', 'expense', data.id, null, data, `Created expense: ${data.category}`);
+    setExpenses((prev) => [
         {
           id: data.id,
           category: data.category,
@@ -944,19 +971,19 @@ export function useExpenses() {
           recordedBy,
         },
         ...prev,
-      ]);
-    }
+    ]);
+    return true;
   };
 
   const updateExpense = async (id: string, e: Omit<Expense, "id" | "recordedBy">) => {
     const userId = await getUserId();
     const role = await getUserRole();
-    if (!userId) return;
+    if (!userId) return false;
 
     // Only managers can update expenses
     if (role !== 'manager') {
       console.error('Only managers can update expenses');
-      return;
+      return false;
     }
 
     console.log('Updating expense:', id, e);
@@ -974,13 +1001,12 @@ export function useExpenses() {
 
     if (error) {
       console.error('Error updating expense:', error);
-      return;
+      return false;
     }
 
-    if (data) {
-      console.log('Expense updated successfully:', data);
-      await logAuditEvent('update', 'expense', data.id, null, data, `Updated expense: ${data.category}`);
-      setExpenses((prev) =>
+    if (!data) return false;
+    await logAuditEvent('update', 'expense', data.id, null, data, `Updated expense: ${data.category}`);
+    setExpenses((prev) =>
         prev.map((expense) =>
           expense.id === id
             ? {
@@ -993,19 +1019,19 @@ export function useExpenses() {
               }
             : expense
         )
-      );
-    }
+    );
+    return true;
   };
 
   const deleteExpense = async (id: string) => {
     const userId = await getUserId();
     const role = await getUserRole();
-    if (!userId) return;
+    if (!userId) return false;
 
     // Only managers can delete expenses
     if (role !== 'manager') {
       console.error('Only managers can delete expenses');
-      return;
+      return false;
     }
 
     console.log('Deleting expense:', id);
@@ -1018,17 +1044,16 @@ export function useExpenses() {
 
     if (error) {
       console.error('Error deleting expense:', error);
-      return;
+      return false;
     }
 
     if (data) {
-      console.log('Expense deleted successfully:', data);
       await logAuditEvent('delete', 'expense', id, data, null, `Deleted expense: ${data.category}`);
       setExpenses((prev) => prev.filter((expense) => expense.id !== id));
     } else {
-      console.log('No data returned from delete, but no error. Removing from local state.');
-      setExpenses((prev) => prev.filter((expense) => expense.id !== id));
+      return false;
     }
+    return true;
   };
 
   return { expenses, addExpense, updateExpense, deleteExpense, loading };
@@ -1096,17 +1121,17 @@ export function useStockEntries() {
     };
   }, [fetchEntries]);
 
-  const addEntry = async (e: Omit<StockEntry, "id">) => {
+  const addEntry = async (e: Omit<StockEntry, "id">): Promise<boolean> => {
     const userId = await getUserId();
     const role = await getUserRole();
-    if (!userId) return;
+    if (!userId) return false;
     
     // Check permission based on stock entry type
     const permission = e.type === 'in' ? 'can_add_stock' : 'can_remove_stock';
     const canModify = await hasPermission(permission);
     if (!canModify) {
       console.error(`Permission denied: cannot ${e.type === 'in' ? 'add' : 'remove'} stock`);
-      return;
+      return false;
     }
 
     const { data, error } = await db
@@ -1136,7 +1161,10 @@ export function useStockEntries() {
         },
         ...prev,
       ]);
+      return true;
     }
+    console.error("Error adding stock entry:", error);
+    return false;
   };
 
   return { entries, addEntry, loading };

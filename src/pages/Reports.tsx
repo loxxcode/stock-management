@@ -1,15 +1,17 @@
 import { useState, useMemo } from "react";
-import { BarChart3, DollarSign, TrendingUp, TrendingDown, Receipt, PieChart, HandCoins, Download, Search } from "lucide-react";
+import { BarChart3, DollarSign, TrendingUp, TrendingDown, Receipt, PieChart, HandCoins, Download } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import SearchInput from "@/components/SearchInput";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 import { useSales, useExpenses, useCustomerCredits, useProducts, useStockEntries } from "@/lib/store";
 import { format, subDays, startOfWeek, startOfMonth, startOfYear, isAfter, parseISO } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate } from "react-router-dom";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 type Period = "today" | "week" | "month" | "year" | "all";
 
@@ -41,6 +43,7 @@ export default function Reports() {
   const { entries: stockEntries, loading: stockLoading } = useStockEntries();
   const [period, setPeriod] = useState<Period>("month");
   const [loanClientSearch, setLoanClientSearch] = useState("");
+  const debouncedLoanClientSearch = useDebouncedValue(loanClientSearch);
   const [loanReportDate, setLoanReportDate] = useState("");
   const [loanReportApplied, setLoanReportApplied] = useState(false);
 
@@ -99,13 +102,13 @@ export default function Reports() {
   const loading = salesLoading || expensesLoading || creditsLoading || productsLoading || stockLoading;
 
   const filteredLoanReport = useMemo(() => {
-    const clientQuery = loanClientSearch.trim().toLowerCase();
+    const clientQuery = debouncedLoanClientSearch.trim().toLowerCase();
     return credits.filter((credit) => {
       const matchesClient = !clientQuery || credit.customerName.toLowerCase().includes(clientQuery);
       const matchesDate = !loanReportDate || credit.date === loanReportDate || credit.dueDate === loanReportDate;
       return matchesClient && matchesDate;
     });
-  }, [credits, loanClientSearch, loanReportDate]);
+  }, [credits, debouncedLoanClientSearch, loanReportDate]);
 
   const downloadLoanReport = () => {
     if (filteredLoanReport.length === 0) return;
@@ -227,7 +230,7 @@ export default function Reports() {
           </SelectContent>
         </Select>
 
-        <Button type="button" onClick={downloadFullReport} disabled={loading} className="w-full">
+        <Button type="button" onClick={downloadFullReport} loading={loading} className="w-full">
           <Download className="h-4 w-4" />
           Download Complete {periodLabel[period]} Report
         </Button>
@@ -378,15 +381,13 @@ export default function Reports() {
                 <span className="text-xs text-muted-foreground">{loanReportApplied ? `${filteredLoanReport.length} match(es)` : "Search to view"}</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2">
-                <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    value={loanClientSearch}
-                    onChange={(event) => setLoanClientSearch(event.target.value)}
-                    placeholder="Search one client"
-                    className="h-9 pl-9"
-                  />
-                </div>
+                <SearchInput
+                  value={loanClientSearch}
+                  onChange={(event) => setLoanClientSearch(event.target.value)}
+                  placeholder="Search one client"
+                  className="h-9"
+                  isSearching={loanClientSearch !== debouncedLoanClientSearch}
+                />
                 <Input
                   type="date"
                   value={loanReportDate}
@@ -394,7 +395,7 @@ export default function Reports() {
                   aria-label="Loan report date"
                   className="h-9"
                 />
-                <Button type="button" onClick={() => setLoanReportApplied(true)} className="h-9">
+                <Button type="button" onClick={() => setLoanReportApplied(true)} className="h-9" disabled={loanClientSearch !== debouncedLoanClientSearch || creditsLoading}>
                   Search
                 </Button>
               </div>

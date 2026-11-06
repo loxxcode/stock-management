@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
-import { Activity, Users, Package, ShoppingCart, Receipt, Filter, Search, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { Activity, Users, Package, ShoppingCart, Receipt, Filter, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import SearchInput from "@/components/SearchInput";
 import PageHeader from "@/components/PageHeader";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 interface SystemActivityLog {
   id: string;
@@ -27,6 +28,7 @@ export default function SystemActivity() {
   const [activities, setActivities] = useState<SystemActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
   const [actionFilter, setActionFilter] = useState<string>("all");
   const [entityFilter, setEntityFilter] = useState<string>("all");
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -108,10 +110,10 @@ export default function SystemActivity() {
 
   const filteredActivities = activities.filter((activity) => {
     const matchesSearch =
-      search === "" ||
-      activity.description?.toLowerCase().includes(search.toLowerCase()) ||
-      activity.user_name.toLowerCase().includes(search.toLowerCase()) ||
-      activity.entity?.toLowerCase().includes(search.toLowerCase());
+      debouncedSearch === "" ||
+      activity.description?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      activity.user_name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      activity.entity?.toLowerCase().includes(debouncedSearch.toLowerCase());
 
     const matchesAction = actionFilter === "all" || activity.action === actionFilter;
     const matchesEntity = entityFilter === "all" || activity.entity === entityFilter;
@@ -134,15 +136,13 @@ export default function SystemActivity() {
         {/* Filters */}
         <div className="rounded-xl border border-border bg-card p-4 space-y-3">
           <div className="flex gap-2">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search activities..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
+            <SearchInput
+              placeholder="Search activities..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1"
+              isSearching={search !== debouncedSearch}
+            />
             <Button variant="outline" onClick={fetchActivities} disabled={loading}>
               <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
             </Button>

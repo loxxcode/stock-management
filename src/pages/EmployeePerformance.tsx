@@ -28,6 +28,7 @@ export default function EmployeePerformance() {
   const { role } = useAuth();
   const [employeeName, setEmployeeName] = useState("");
   const [period, setPeriod] = useState<Period>("month");
+  const [loading, setLoading] = useState(true);
   const [performanceData, setPerformanceData] = useState({
     totalSales: 0,
     salesCount: 0,
@@ -39,7 +40,18 @@ export default function EmployeePerformance() {
 
   useEffect(() => {
     if (!employeeId || (role !== "manager" && role !== "admin")) return;
-    fetchEmployeeData();
+    let active = true;
+    setLoading(true);
+    fetchEmployeeData()
+      .catch((error) => {
+        console.error("Failed to load employee performance:", error);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [employeeId, period, role]);
 
   const fetchEmployeeData = async () => {
@@ -184,32 +196,36 @@ export default function EmployeePerformance() {
 
         {/* Performance Stats */}
         <div className="grid grid-cols-2 gap-3">
-          <StatCard
-            title="Total Sales"
-            value={`RWF ${performanceData.totalSales.toLocaleString()}`}
-            icon={DollarSign}
-            variant="success"
-            compact
-          />
-          <StatCard
-            title="Transactions"
-            value={performanceData.salesCount.toString()}
-            icon={ShoppingCart}
-            compact
-          />
-          <StatCard
-            title="Average Sale"
-            value={`RWF ${performanceData.averageSale.toLocaleString()}`}
-            icon={TrendingUp}
-            variant="accent"
-            compact
-          />
-          <StatCard
-            title="Activities"
-            value={performanceData.activityCount.toString()}
-            icon={Activity}
-            compact
-          />
+          {loading ? Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="h-24 animate-pulse rounded-xl bg-muted" />
+          )) : <>
+            <StatCard
+              title="Total Sales"
+              value={`RWF ${performanceData.totalSales.toLocaleString()}`}
+              icon={DollarSign}
+              variant="success"
+              compact
+            />
+            <StatCard
+              title="Transactions"
+              value={performanceData.salesCount.toString()}
+              icon={ShoppingCart}
+              compact
+            />
+            <StatCard
+              title="Average Sale"
+              value={`RWF ${performanceData.averageSale.toLocaleString()}`}
+              icon={TrendingUp}
+              variant="accent"
+              compact
+            />
+            <StatCard
+              title="Activities"
+              value={performanceData.activityCount.toString()}
+              icon={Activity}
+              compact
+            />
+          </>}
         </div>
 
         {/* Top Products */}
@@ -218,7 +234,11 @@ export default function EmployeePerformance() {
             <BarChart3 className="h-4 w-4 text-primary" />
             Top Products
           </h3>
-          {performanceData.topProducts.length === 0 ? (
+          {loading ? (
+            <div className="space-y-3" role="status" aria-label="Loading top products">
+              {Array.from({ length: 3 }, (_, index) => <div key={index} className="h-8 animate-pulse rounded bg-muted" />)}
+            </div>
+          ) : performanceData.topProducts.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">No sales data for this period</p>
           ) : (
             <div className="space-y-3">
@@ -248,7 +268,11 @@ export default function EmployeePerformance() {
             <Calendar className="h-4 w-4 text-primary" />
             Daily Performance
           </h3>
-          {performanceData.dailySales.length === 0 ? (
+          {loading ? (
+            <div className="space-y-3" role="status" aria-label="Loading daily performance">
+              {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-8 animate-pulse rounded bg-muted" />)}
+            </div>
+          ) : performanceData.dailySales.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">No daily data for this period</p>
           ) : (
             <div className="space-y-2">

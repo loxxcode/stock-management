@@ -26,51 +26,59 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
 
-    const fd = new FormData(e.currentTarget as HTMLFormElement);
-    const email = fd.get("email") as string;
-    const password = fd.get("password") as string;
+    try {
+      const fd = new FormData(e.currentTarget as HTMLFormElement);
+      const email = fd.get("email") as string;
+      const password = fd.get("password") as string;
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    setLoading(false);
-
-    if (error) {
-      if (error.message === "Invalid login credentials") {
-        toast.error(
-          "Invalid email or password. If you just registered, please check your email and confirm your account first.",
-        );
-      } else {
-        toast.error(error.message);
+      if (error) {
+        if (error.message === "Invalid login credentials") {
+          toast.error(
+            "Invalid email or password. If you just registered, please check your email and confirm your account first.",
+          );
+        } else {
+          toast.error(error.message);
+        }
+        return;
       }
-      return;
-    }
 
-    navigate("/");
+      navigate("/");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to sign in. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setResetLoading(true);
 
-    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
 
-    setResetLoading(false);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
 
-    if (error) {
-      toast.error(error.message);
-      return;
+      toast.success(
+        "Password reset email sent! Check your inbox and follow the instructions.",
+      );
+      setForgotPasswordOpen(false);
+      setResetEmail("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to send the reset email.");
+    } finally {
+      setResetLoading(false);
     }
-
-    toast.success(
-      "Password reset email sent! Check your inbox and follow the instructions.",
-    );
-    setForgotPasswordOpen(false);
-    setResetEmail("");
   };
 
   return (
@@ -143,7 +151,7 @@ export default function Login() {
             <Button
               type="submit"
               className="w-full font-semibold"
-              disabled={loading}
+              loading={loading}
             >
               {loading ? "Signing In..." : "Sign In"}
             </Button>
@@ -194,7 +202,7 @@ export default function Login() {
                     </Button>
                     <Button
                       type="submit"
-                      disabled={resetLoading}
+                      loading={resetLoading}
                       className="flex-1"
                     >
                       {resetLoading ? "Sending..." : "Send Reset Link"}

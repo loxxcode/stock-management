@@ -148,7 +148,7 @@ export default function AdminSettings() {
               variant="outline"
               className="w-full"
               onClick={() => handleConfirmAction("cleanup")}
-              disabled={loading}
+              loading={loading}
             >
               <Trash2 className="h-4 w-4 mr-2" />
               Cleanup Old Records
@@ -157,7 +157,7 @@ export default function AdminSettings() {
               variant="outline"
               className="w-full"
               onClick={handleRefreshData}
-              disabled={loading}
+              loading={loading}
             >
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh All Data
@@ -168,7 +168,7 @@ export default function AdminSettings() {
             <Button variant="outline" className="flex-1" onClick={() => setView("main")}>
               Back
             </Button>
-            <Button className="flex-1" onClick={handleSaveSettings} disabled={loading}>
+            <Button className="flex-1" onClick={handleSaveSettings} loading={loading}>
               <Save className="h-4 w-4 mr-2" />
               {loading ? "Saving..." : "Save"}
             </Button>
@@ -220,7 +220,7 @@ export default function AdminSettings() {
             <Button variant="outline" className="flex-1" onClick={() => setView("main")}>
               Back
             </Button>
-            <Button className="flex-1" onClick={handleSaveSettings} disabled={loading}>
+            <Button className="flex-1" onClick={handleSaveSettings} loading={loading}>
               <Save className="h-4 w-4 mr-2" />
               {loading ? "Saving..." : "Save"}
             </Button>
@@ -272,7 +272,7 @@ export default function AdminSettings() {
             <Button variant="outline" className="flex-1" onClick={() => setView("main")}>
               Back
             </Button>
-            <Button className="flex-1" onClick={handleSaveSettings} disabled={loading}>
+            <Button className="flex-1" onClick={handleSaveSettings} loading={loading}>
               <Save className="h-4 w-4 mr-2" />
               {loading ? "Saving..." : "Save"}
             </Button>
@@ -321,7 +321,7 @@ export default function AdminSettings() {
             <Button variant="outline" className="flex-1" onClick={() => setView("main")}>
               Back
             </Button>
-            <Button className="flex-1" onClick={handleSaveSettings} disabled={loading}>
+            <Button className="flex-1" onClick={handleSaveSettings} loading={loading}>
               <Save className="h-4 w-4 mr-2" />
               {loading ? "Saving..." : "Save"}
             </Button>
@@ -381,7 +381,7 @@ export default function AdminSettings() {
               <Button
                 variant={confirmAction === "cleanup" ? "destructive" : "default"}
                 onClick={confirmAction === "cleanup" ? handleDatabaseCleanup : () => setConfirmDialogOpen(false)}
-                disabled={loading}
+                loading={loading}
               >
                 {loading ? "Processing..." : "Confirm"}
               </Button>

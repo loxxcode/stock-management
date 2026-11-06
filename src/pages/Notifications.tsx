@@ -14,10 +14,11 @@ interface NotificationItem {
 }
 
 export default function Notifications() {
-  const { products } = useProducts();
-  const { sales } = useSales();
-  const { expenses } = useExpenses();
-  const { entries } = useStockEntries();
+  const { products, loading: productsLoading } = useProducts();
+  const { sales, loading: salesLoading } = useSales();
+  const { expenses, loading: expensesLoading } = useExpenses();
+  const { entries, loading: entriesLoading } = useStockEntries();
+  const loading = productsLoading || salesLoading || expensesLoading || entriesLoading;
 
   const today = format(new Date(), "yyyy-MM-dd");
 
@@ -177,7 +178,10 @@ export default function Notifications() {
 
       {/* Daily Summary Cards */}
       <div className="px-4 mt-2 mb-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3" aria-busy={loading}>
+          {loading ? Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="h-20 animate-pulse rounded-xl bg-muted" />
+          )) : <>
           <div className="rounded-xl border border-success/30 bg-success/5 p-3">
             <p className="text-xs text-muted-foreground font-medium">Total Sold</p>
             <p className="text-lg font-bold text-success">RWF {totalSalesRevenue.toLocaleString()}</p>
@@ -198,6 +202,7 @@ export default function Notifications() {
             <p className="text-lg font-bold text-destructive">-{totalStockOutQty}</p>
             <p className="text-[10px] text-muted-foreground">{todayStockOut.length} items</p>
           </div>
+          </>}
         </div>
       </div>
 
@@ -207,7 +212,9 @@ export default function Notifications() {
           <Bell className="h-4 w-4 text-primary" />
           Activity Feed
         </h3>
-        {notifications.map(n => (
+        {loading ? Array.from({ length: 4 }, (_, index) => (
+          <div key={index} className="h-20 animate-pulse rounded-xl bg-muted" />
+        )) : notifications.map(n => (
           <div
             key={n.id}
             className={`rounded-xl border p-3 flex items-start gap-3 ${variantStyles[n.variant]}`}

@@ -12,6 +12,7 @@ import { useExpenses } from "@/lib/store";
 import { useAuth } from "@/contexts/AuthContext";
 import { format, startOfMonth } from "date-fns";
 import { toRwf, type EntryCurrency } from "@/lib/currency";
+import { toast } from "sonner";
 
 const categoryIcons: Record<string, React.ReactNode> = {
   Rent: <Home className="h-4 w-4" />,
@@ -21,13 +22,15 @@ const categoryIcons: Record<string, React.ReactNode> = {
 };
 
 export default function Expenses() {
-  const { expenses, addExpense, updateExpense, deleteExpense } = useExpenses();
+  const { expenses, addExpense, updateExpense, deleteExpense, loading: expensesLoading } = useExpenses();
   const { role, permissions } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<typeof expenses[0] | null>(null);
   const [deletingExpenseId, setDeletingExpenseId] = useState<string | null>(null);
+  const [savingExpense, setSavingExpense] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [editCategory, setEditCategory] = useState("");
   const [editAmount, setEditAmount] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -47,37 +50,57 @@ export default function Expenses() {
   const canViewExpenses = role === "admin" || role === "manager" || (permissions?.can_view_expenses === true);
   const canAddExpenses = role === "admin" || role === "manager" || (permissions?.can_add_expenses === true);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    addExpense({
-      category: fd.get("category") as string,
-      amount: toRwf(parseFloat(amount) || 0, amountCurrency),
-      description: fd.get("description") as string,
-      date: new Date().toISOString().split("T")[0],
-    });
-    setAmount("");
-    setAmountCurrency("RWF");
-    setDialogOpen(false);
+    setSavingExpense(true);
+    try {
+      const saved = await addExpense({
+        category: fd.get("category") as string,
+        amount: toRwf(parseFloat(amount) || 0, amountCurrency),
+        description: fd.get("description") as string,
+        date: new Date().toISOString().split("T")[0],
+      });
+      if (!saved) {
+        toast.error("Could not add expense. Check your permissions and try again.");
+        return;
+      }
+      setAmount("");
+      setAmountCurrency("RWF");
+      setDialogOpen(false);
+      toast.success("Expense added.");
+    } catch (error) {
+      console.error("Could not add expense:", error);
+      toast.error(error instanceof Error ? error.message : "Could not add expense.");
+    } finally {
+      setSavingExpense(false);
+    }
   };
 
-  const handleEditSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (editingExpense) {
-      console.log('Updating expense:', editingExpense.id, {
-        category: editCategory,
-        amount: toRwf(parseFloat(editAmount) || 0, editCurrency),
-        description: editDescription,
-        date: editDate,
-      });
-      updateExpense(editingExpense.id, {
-        category: editCategory,
-        amount: parseFloat(editAmount),
-        description: editDescription,
-        date: editDate,
-      });
-      setEditDialogOpen(false);
-      setEditingExpense(null);
+      setSavingExpense(true);
+      try {
+        const saved = await updateExpense(editingExpense.id, {
+          category: editCategory,
+          amount: toRwf(parseFloat(editAmount) || 0, editCurrency),
+          description: editDescription,
+          date: editDate,
+        });
+        if (!saved) {
+          toast.error("Could not update expense. Check your permissions and try again.");
+          return;
+        }
+        setEditDialogOpen(false);
+        setEditingExpense(null);
+        toast.success("Expense updated.");
+      } catch (error) {
+        console.error("Could not update expense:", error);
+        toast.error(error instanceof Error ? error.message : "Could not update expense.");
+      } finally {
+        setSavingExpense(false);
+      }
     }
   };
 
@@ -91,12 +114,24 @@ export default function Expenses() {
     setEditDialogOpen(true);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (deletingExpenseId) {
-      console.log('Deleting expense:', deletingExpenseId);
-      deleteExpense(deletingExpenseId);
-      setDeleteDialogOpen(false);
-      setDeletingExpenseId(null);
+      setDeleteLoading(true);
+      try {
+        const deleted = await deleteExpense(deletingExpenseId);
+        if (!deleted) {
+          toast.error("Could not delete expense. Check your permissions and try again.");
+          return;
+        }
+        setDeleteDialogOpen(false);
+        setDeletingExpenseId(null);
+        toast.success("Expense deleted.");
+      } catch (error) {
+        console.error("Could not delete expense:", error);
+        toast.error(error instanceof Error ? error.message : "Could not delete expense.");
+      } finally {
+        setDeleteLoading(false);
+      }
     }
   };
 
@@ -111,7 +146,10 @@ export default function Expenses() {
 
       <div className="px-4 space-y-4 mt-2">
         {/* Stat Cards */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-3" aria-busy={expensesLoading}>
+          {expensesLoading ? Array.from({ length: 3 }, (_, index) => (
+            <div key={index} className="h-24 animate-pulse rounded-xl bg-muted" />
+          )) : <>
           <StatCard
             title="Total Expenses"
             value={`RWF ${totalExpenses.toLocaleString()}`}
@@ -126,6 +164,7 @@ export default function Expenses() {
             variant="warning"
             compact
           />
+          </>}
           <StatCard
             title="Categories"
             value={categoriesCount.toString()}
@@ -165,15 +204,23 @@ export default function Expenses() {
                   required
                 />
                 <div><Label>Description</Label><Input name="description" placeholder="e.g. Monthly rent" required /></div>
-                <Button type="submit" className="w-full bg-primary text-primary-foreground">Add Expense</Button>
+                <Button type="submit" className="w-full bg-primary text-primary-foreground" loading={savingExpense}>
+                  {savingExpense ? "Saving..." : "Add Expense"}
+                </Button>
               </form>
             </DialogContent>
           </Dialog>
         )}
 
         {canViewExpenses && (
-          <div className="space-y-2">
-            {expenses.slice().reverse().map(expense => (
+          <div className="space-y-2" aria-busy={expensesLoading}>
+            {expensesLoading ? (
+              <div className="space-y-2" role="status" aria-label="Loading expenses">
+                {Array.from({ length: 4 }, (_, index) => (
+                  <div key={index} className="h-20 animate-pulse rounded-xl border border-border bg-muted/50" />
+                ))}
+              </div>
+            ) : expenses.slice().reverse().map(expense => (
             <div key={expense.id} className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card">
               <div className="p-2 rounded-lg bg-destructive/10 text-destructive">
                 {categoryIcons[expense.category] || <Receipt className="h-4 w-4" />}
@@ -208,7 +255,7 @@ export default function Expenses() {
               </div>
             </div>
           ))}
-          {expenses.length === 0 && (
+          {!expensesLoading && expenses.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-8">No expenses recorded yet</p>
           )}
         </div>
@@ -263,7 +310,9 @@ export default function Expenses() {
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-                  <Button type="submit" className="bg-primary text-primary-foreground">Update Expense</Button>
+                  <Button type="submit" className="bg-primary text-primary-foreground" loading={savingExpense}>
+                    {savingExpense ? "Saving..." : "Update Expense"}
+                  </Button>
                 </DialogFooter>
               </form>
             )}
@@ -286,7 +335,9 @@ export default function Expenses() {
             </div>
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-              <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+              <Button variant="destructive" onClick={handleDelete} loading={deleteLoading}>
+                {deleteLoading ? "Deleting..." : "Delete"}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

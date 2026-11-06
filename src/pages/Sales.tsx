@@ -3,6 +3,7 @@ import { Plus, ShoppingCart, DollarSign, TrendingUp, Search, Check, HandCoins, C
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import SearchInput from "@/components/SearchInput";
 import CurrencyAmountField from "@/components/CurrencyAmountField";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -15,12 +16,17 @@ import { useAuth } from "@/contexts/AuthContext";
 import { summarizeCustomerCredits } from "@/lib/credit";
 import { formatRwf, toRwf, type EntryCurrency } from "@/lib/currency";
 import { calculateProductTax } from "@/lib/productTax";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { toast } from "sonner";
 
 export default function Sales() {
   const { profile, role, permissions } = useAuth();
-  const { products, updateProduct } = useProducts();
-  const { sales, addSale } = useSales();
-  const { credits, addCustomerCredit, updateCustomerCredit, recordPayment, paymentsByCredit, fetchCreditPayments } = useCustomerCredits();
+  const { products, updateProduct, loading: productsLoading } = useProducts();
+  const { sales, addSale, loading: salesLoading } = useSales();
+  const { credits, addCustomerCredit, recordPayment, paymentsByCredit, fetchCreditPayments, loading: creditsLoading } = useCustomerCredits();
+  const [savingSale, setSavingSale] = useState(false);
+  const [savingLoan, setSavingLoan] = useState(false);
+  const [savingPayment, setSavingPayment] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [loanDialogOpen, setLoanDialogOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
@@ -49,6 +55,9 @@ export default function Sales() {
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [customerDetailOpen, setCustomerDetailOpen] = useState(false);
   const [customerPaymentInput, setCustomerPaymentInput] = useState<Record<string, string>>({});
+  const debouncedLoanSearch = useDebouncedValue(loanSearch);
+  const debouncedSalesSearch = useDebouncedValue(salesSearch);
+  const debouncedSalesProduct = useDebouncedValue(salesProduct);
 
   const subtotal = selectedProduct ? toRwf(pricePerUnit, saleCurrency) * quantity : 0;
   const taxAmount = selectedProduct
@@ -75,7 +84,7 @@ export default function Sales() {
   );
 
   const filteredLoans = useMemo(() => {
-    const query = loanSearch.trim().toLowerCase();
+    const query = debouncedLoanSearch.trim().toLowerCase();
     const source = activeLoans;
     if (!query) return source;
 
@@ -85,11 +94,11 @@ export default function Sales() {
       const matchesProduct = credit.productName.toLowerCase().includes(query);
       return matchesName || matchesDate || matchesProduct;
     });
-  }, [activeLoans, loanSearch]);
+  }, [activeLoans, debouncedLoanSearch]);
 
   const filteredSales = useMemo(() => {
-    const query = salesSearch.trim().toLowerCase();
-    const productQuery = salesProduct.trim().toLowerCase();
+    const query = debouncedSalesSearch.trim().toLowerCase();
+    const productQuery = debouncedSalesProduct.trim().toLowerCase();
     const hasSearchCriteria = Boolean(query || productQuery || salesStartDate || salesEndDate || salesSource !== "all");
 
     if (!hasSearchCriteria) return [];
@@ -111,10 +120,10 @@ export default function Sales() {
 
       return matchesQuery && matchesProduct && matchesDate && matchesSource;
     }).slice().reverse();
-  }, [sales, salesSearch, salesProduct, salesStartDate, salesEndDate, salesSource]);
+  }, [sales, debouncedSalesSearch, debouncedSalesProduct, salesStartDate, salesEndDate, salesSource]);
 
   const filteredCompletedLoans = useMemo(() => {
-    const query = loanSearch.trim().toLowerCase();
+    const query = debouncedLoanSearch.trim().toLowerCase();
     const source = completedLoans;
     if (!query) return source;
 
@@ -124,57 +133,84 @@ export default function Sales() {
       const matchesProduct = credit.productName.toLowerCase().includes(query);
       return matchesName || matchesDate || matchesProduct;
     });
-  }, [completedLoans, loanSearch]);
+  }, [completedLoans, debouncedLoanSearch]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProduct) return;
 
-    addSale({
-      productId: selectedProduct.id,
-      productName: selectedProduct.name,
-      quantity,
-      total,
-      taxAmount,
-      date: new Date().toISOString().split("T")[0],
-      employeeName: profile?.full_name || "Manager",
-    });
+    setSavingSale(true);
+    try {
+      const saleCreated = await addSale({
+        productId: selectedProduct.id,
+        productName: selectedProduct.name,
+        quantity,
+        total,
+        taxAmount,
+        date: new Date().toISOString().split("T")[0],
+        employeeName: profile?.full_name || "Manager",
+      });
+      if (!saleCreated) {
+        toast.error("Could not record sale. Check your permissions and try again.");
+        return;
+      }
 
-    updateProduct(selectedProduct.id, { stock: Math.max(0, selectedProduct.stock - quantity) });
-    setDialogOpen(false);
-    setSelectedProduct(null);
-    setQuantity(1);
-    setPricePerUnit(0);
-    setSaleCurrency("RWF");
+      const stockUpdated = await updateProduct(selectedProduct.id, { stock: Math.max(0, selectedProduct.stock - quantity) });
+      if (!stockUpdated) {
+        toast.error("Sale was recorded, but inventory could not be updated. Please verify stock before continuing.");
+      }
+      setDialogOpen(false);
+      setSelectedProduct(null);
+      setQuantity(1);
+      setPricePerUnit(0);
+      setSaleCurrency("RWF");
+    } catch (error) {
+      console.error("Could not complete sale:", error);
+      toast.error(error instanceof Error ? error.message : "Could not complete sale.");
+    } finally {
+      setSavingSale(false);
+    }
   };
 
-  const handleLoanSubmit = (e: React.FormEvent) => {
+  const handleLoanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const productLabel = (selectedLoanProduct?.name || loanProductName || "").trim();
     if (!customerName.trim() || !productLabel || loanAmount <= 0) return;
 
-    addCustomerCredit({
-      customerName: customerName.trim(),
-      productName: productLabel,
-      quantity: loanQuantity,
-      amountDue: toRwf(loanAmount, loanCurrency),
-      paidAmount: 0,
-      status: "open",
-      date: new Date().toISOString().split("T")[0],
-      dueDate: loanDueDate,
-      employeeName: profile?.full_name || "Manager",
-      note: loanNote.trim(),
-    });
+    setSavingLoan(true);
+    try {
+      const creditCreated = await addCustomerCredit({
+        customerName: customerName.trim(),
+        productName: productLabel,
+        quantity: loanQuantity,
+        amountDue: toRwf(loanAmount, loanCurrency),
+        paidAmount: 0,
+        status: "open",
+        date: new Date().toISOString().split("T")[0],
+        dueDate: loanDueDate,
+        employeeName: profile?.full_name || "Manager",
+        note: loanNote.trim(),
+      });
+      if (!creditCreated) {
+        toast.error("Could not record loan. Please verify your connection and try again.");
+        return;
+      }
 
-    setLoanDialogOpen(false);
-    setCustomerName("");
-    setLoanProductName("");
-    setSelectedLoanProduct(null);
-    setLoanQuantity(1);
-    setLoanAmount(0);
-    setLoanCurrency("RWF");
-    setLoanDueDate(new Date().toISOString().split("T")[0]);
-    setLoanNote("");
+      setLoanDialogOpen(false);
+      setCustomerName("");
+      setLoanProductName("");
+      setSelectedLoanProduct(null);
+      setLoanQuantity(1);
+      setLoanAmount(0);
+      setLoanCurrency("RWF");
+      setLoanDueDate(new Date().toISOString().split("T")[0]);
+      setLoanNote("");
+    } catch (error) {
+      console.error("Could not record loan:", error);
+      toast.error(error instanceof Error ? error.message : "Could not record loan.");
+    } finally {
+      setSavingLoan(false);
+    }
   };
 
   const openCustomerDetail = async (credit: any) => {
@@ -190,10 +226,22 @@ export default function Sales() {
 
     if (!amount || amount <= 0 || amount > remaining) return;
 
-    await recordPayment(credit.id, amount, profile?.full_name || "Manager", "Payment from customer detail");
-    setCustomerPaymentInput((prev) => ({ ...prev, [credit.id]: "" }));
-    await fetchCreditPayments(credit.id);
-    setSelectedCustomer({ ...credit, paidAmount: Number(credit.paidAmount || 0) + amount });
+    setSavingPayment(true);
+    try {
+      const recorded = await recordPayment(credit.id, amount, profile?.full_name || "Manager", "Payment from customer detail");
+      if (!recorded) {
+        toast.error("Could not complete payment. Verify the credit balance before retrying.");
+        return;
+      }
+      setCustomerPaymentInput((prev) => ({ ...prev, [credit.id]: "" }));
+      await fetchCreditPayments(credit.id);
+      setSelectedCustomer({ ...credit, paidAmount: Number(credit.paidAmount || 0) + amount });
+    } catch (error) {
+      console.error("Could not record customer payment:", error);
+      toast.error(error instanceof Error ? error.message : "Could not record payment.");
+    } finally {
+      setSavingPayment(false);
+    }
   };
 
   const totalRevenue = sales.reduce((sum, s) => sum + s.total, 0);
@@ -305,7 +353,9 @@ export default function Sales() {
                     <p className="text-xs text-muted-foreground">Available stock: {selectedProduct.stock}</p>
                   </div>
                 )}
-                <Button type="submit" className="w-full bg-primary text-primary-foreground" disabled={!selectedProduct}>Confirm Sale</Button>
+                <Button type="submit" className="w-full bg-primary text-primary-foreground" disabled={!selectedProduct || productsLoading} loading={savingSale}>
+                  {savingSale ? "Recording Sale..." : "Confirm Sale"}
+                </Button>
               </form>
             </DialogContent>
           </Dialog>
@@ -387,7 +437,9 @@ export default function Sales() {
                   <p className="text-muted-foreground">Customer owes: <span className="font-bold text-foreground text-lg">{formatRwf(toRwf(loanAmount, loanCurrency))}</span></p>
                   <p className="text-xs text-muted-foreground">This is saved separately from sales and will show in the loan list.</p>
                 </div>
-                <Button type="submit" className="w-full bg-amber-500 text-white" disabled={!customerName.trim() || !(selectedLoanProduct?.name || loanProductName.trim()) || loanAmount <= 0}>Save Loan</Button>
+                <Button type="submit" className="w-full bg-amber-500 text-white" disabled={!customerName.trim() || !(selectedLoanProduct?.name || loanProductName.trim()) || loanAmount <= 0} loading={savingLoan}>
+                  {savingLoan ? "Saving Loan..." : "Save Loan"}
+                </Button>
               </form>
             </DialogContent>
           </Dialog>
@@ -399,7 +451,9 @@ export default function Sales() {
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Loans</p>
             <span className="text-xs text-amber-600 font-medium">{summary.activeCustomers} customers</span>
           </div>
-          <p className="text-2xl font-bold text-foreground">RWF {summary.totalOutstanding.toLocaleString()}</p>
+          <p className="text-2xl font-bold text-foreground" aria-busy={creditsLoading}>
+            {creditsLoading ? <span className="inline-block h-7 w-32 animate-pulse rounded bg-muted" /> : `RWF ${summary.totalOutstanding.toLocaleString()}`}
+          </p>
           <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
             <span>Due today: {summary.dueTodayCount}</span>
             <span>Overdue: {summary.overdueCount}</span>
@@ -411,13 +465,20 @@ export default function Sales() {
 
         {showLoanList && (
           <div className="space-y-4 rounded-xl border border-border bg-card p-3">
-            <div className="flex items-center gap-2">
-              <Search className="h-4 w-4 text-muted-foreground" />
-              <Input value={loanSearch} onChange={e => setLoanSearch(e.target.value)} placeholder="Search customer, date or product" className="h-9" />
-            </div>
+            <SearchInput
+              value={loanSearch}
+              onChange={e => setLoanSearch(e.target.value)}
+              placeholder="Search customer, date or product"
+              className="h-9"
+              isSearching={loanSearch !== debouncedLoanSearch}
+            />
 
             <div className="space-y-2">
-              {filteredLoans.length > 0 ? filteredLoans.map((credit) => {
+              {creditsLoading ? (
+                <div className="space-y-2" role="status" aria-label="Loading loans">
+                  {Array.from({ length: 3 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-xl bg-muted/50" />)}
+                </div>
+              ) : filteredLoans.length > 0 ? filteredLoans.map((credit) => {
                 const isOverdue = credit.dueDate && credit.dueDate < today && credit.amountDue > credit.paidAmount;
                 const isDueToday = credit.dueDate === today && credit.amountDue > credit.paidAmount;
                 const outstanding = Math.max(0, credit.amountDue - credit.paidAmount);
@@ -533,8 +594,8 @@ export default function Sales() {
                       onChange={(e) => setCustomerPaymentInput((prev) => ({ ...prev, [selectedCustomer.id]: e.target.value }))}
                       placeholder={`Max ${Math.max(0, Number(selectedCustomer.amountDue || 0) - Number(selectedCustomer.paidAmount || 0)).toLocaleString()}`}
                     />
-                    <Button type="button" onClick={() => handleCustomerDetailPayment(selectedCustomer)} className="bg-emerald-600 text-white">
-                      Pay
+                    <Button type="button" onClick={() => handleCustomerDetailPayment(selectedCustomer)} className="bg-emerald-600 text-white" loading={savingPayment}>
+                      {savingPayment ? "Paying..." : "Pay"}
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">If left empty, the system will pay the remaining balance.</p>

@@ -56,25 +56,26 @@ export default function ResetPassword() {
 
     setLoading(true);
 
-    const { error } = await supabase.auth.updateUser({
-      password: password,
-    });
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password,
+      });
 
-    setLoading(false);
+      if (error) {
+        console.error('Password update error:', error);
+        toast.error(error.message);
+        return;
+      }
 
-    if (error) {
-      console.error('Password update error:', error);
-      toast.error(error.message);
-      return;
+      toast.success("Password updated successfully! You can now sign in with your new password.");
+      setTimeout(() => {
+        navigate("/login");
+      }, 1000);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to update your password.");
+    } finally {
+      setLoading(false);
     }
-
-    console.log('Password updated successfully');
-    toast.success("Password updated successfully! You can now sign in with your new password.");
-
-    // Small delay to ensure the session is updated
-    setTimeout(() => {
-      navigate("/login");
-    }, 1000);
   };
 
   return (
@@ -143,7 +144,7 @@ export default function ResetPassword() {
               </div>
             </div>
 
-            <Button type="submit" className="w-full font-semibold" disabled={loading}>
+            <Button type="submit" className="w-full font-semibold" loading={loading}>
               {loading ? "Updating Password..." : "Update Password"}
             </Button>
           </form>

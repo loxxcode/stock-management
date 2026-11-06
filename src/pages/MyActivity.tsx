@@ -19,7 +19,7 @@ interface ActivityLog {
 
 export default function MyActivity() {
   const { user, role } = useAuth();
-  const { sales } = useSales();
+  const { sales, loading: salesLoading } = useSales();
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState("today");
@@ -173,7 +173,10 @@ export default function MyActivity() {
         </Select>
 
         {/* Performance Stats */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3" aria-busy={salesLoading}>
+          {salesLoading ? Array.from({ length: 2 }, (_, index) => (
+            <div key={index} className="h-24 animate-pulse rounded-xl bg-muted" />
+          )) : <>
           <StatCard
             title="Sales Made"
             value={totalSales.toString()}
@@ -188,6 +191,7 @@ export default function MyActivity() {
             variant="accent"
             trend="Total earned"
           />
+          </>}
         </div>
 
         {/* Activity Log */}
@@ -278,8 +282,12 @@ export default function MyActivity() {
             <ShoppingCart className="h-4 w-4 text-primary" />
             Recent Sales
           </h3>
-          <div className="space-y-2">
-            {filteredSales.slice(0, 5).length > 0 ? (
+          <div className="space-y-2" aria-busy={salesLoading}>
+            {salesLoading ? (
+              <div className="space-y-2" role="status" aria-label="Loading recent sales">
+                {Array.from({ length: 3 }, (_, index) => <div key={index} className="h-12 animate-pulse rounded-lg bg-muted" />)}
+              </div>
+            ) : filteredSales.slice(0, 5).length > 0 ? (
               filteredSales.slice(0, 5).map((sale) => (
                 <div key={sale.id} className="flex items-center justify-between text-sm p-2 rounded-lg bg-secondary/50">
                   <div>

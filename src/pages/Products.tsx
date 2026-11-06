@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { Plus, Search, Pencil, Trash2, Package, AlertCircle, FileSpreadsheet, LoaderCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Package, AlertCircle, FileSpreadsheet, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import SearchInput from "@/components/SearchInput";
 import CurrencyAmountField from "@/components/CurrencyAmountField";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import PageHeader from "@/components/PageHeader";
@@ -13,14 +14,17 @@ import { formatRwf, toRwf, type EntryCurrency } from "@/lib/currency";
 import { calculateProductTax } from "@/lib/productTax";
 import type { ProductImportResult } from "@/lib/productImport";
 import { toast } from "sonner";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 export default function Products() {
-  const { products, addProduct, addProducts, updateProduct, deleteProduct } = useProducts();
+  const { products, addProduct, addProducts, updateProduct, deleteProduct, loading: productsLoading } = useProducts();
   const { role, permissions } = useAuth();
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<ProductImportResult | null>(null);
   const [editing, setEditing] = useState<Product | null>(null);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
@@ -37,7 +41,8 @@ export default function Products() {
   const canEdit = role === "admin" || role === "manager" || (permissions && permissions.can_edit_product);
   const canDelete = role === "admin" || role === "manager" || (permissions && permissions.can_delete_product);
 
-  const searchTerm = search.trim().toLowerCase();
+  const debouncedSearch = useDebouncedValue(search);
+  const searchTerm = debouncedSearch.trim().toLowerCase();
   const filtered = products.filter(p =>
     p.name.toLowerCase().includes(searchTerm) ||
     p.category.toLowerCase().includes(searchTerm)
@@ -103,7 +108,7 @@ export default function Products() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const data = {
@@ -122,9 +127,21 @@ export default function Products() {
         ...data,
         stock: editing.stock + data.stock
       };
-      updateProduct(editing.id, updatedData);
-      setEditing(null);
-      setDialogOpen(false);
+      setSavingProduct(true);
+      try {
+        const updated = await updateProduct(editing.id, updatedData);
+        if (!updated) {
+          toast.error("Could not update product. Check your permissions and try again.");
+          return;
+        }
+        setEditing(null);
+        setDialogOpen(false);
+      } catch (error) {
+        console.error("Could not update product:", error);
+        toast.error(error instanceof Error ? error.message : "Could not update product.");
+      } finally {
+        setSavingProduct(false);
+      }
     } else {
       // Check if product with same name already exists
       const existingProduct = products.find(p => 
@@ -138,24 +155,48 @@ export default function Products() {
         setConfirmDialogOpen(true);
       } else {
         // New product, add it
-        addProduct(data);
-        setDialogOpen(false);
+        setSavingProduct(true);
+        try {
+          const created = await addProduct(data);
+          if (!created) {
+            toast.error("Could not add product. Check your permissions and try again.");
+            return;
+          }
+          setDialogOpen(false);
+        } catch (error) {
+          console.error("Could not add product:", error);
+          toast.error(error instanceof Error ? error.message : "Could not add product.");
+        } finally {
+          setSavingProduct(false);
+        }
       }
     }
   };
 
-  const handleUpdateExisting = () => {
+  const handleUpdateExisting = async () => {
     if (duplicateProduct && pendingData) {
       // Add new stock to existing stock instead of replacing
       const updatedData = {
         ...pendingData,
         stock: duplicateProduct.stock + pendingData.stock
       };
-      updateProduct(duplicateProduct.id, updatedData);
-      setDuplicateProduct(null);
-      setPendingData(null);
-      setConfirmDialogOpen(false);
-      setDialogOpen(false);
+      setSavingProduct(true);
+      try {
+        const updated = await updateProduct(duplicateProduct.id, updatedData);
+        if (!updated) {
+          toast.error("Could not update product. Check your permissions and try again.");
+          return;
+        }
+        setDuplicateProduct(null);
+        setPendingData(null);
+        setConfirmDialogOpen(false);
+        setDialogOpen(false);
+      } catch (error) {
+        console.error("Could not update product:", error);
+        toast.error(error instanceof Error ? error.message : "Could not update product.");
+      } finally {
+        setSavingProduct(false);
+      }
     }
   };
 
@@ -167,18 +208,17 @@ export default function Products() {
 
   return (
     <div className="pb-24">
-      <PageHeader title="Products" subtitle={`${products.length} items`} />
+      <PageHeader title="Products" subtitle={productsLoading ? "Loading products..." : `${products.length} items`} />
 
       <div className="px-4 space-y-4 mt-2">
         {/* Search + Add */}
         <div className="flex gap-2">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
+            <SearchInput
               placeholder="Search products..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="pl-9"
+              isSearching={search.trim() !== debouncedSearch.trim()}
               disabled={isAddingNew}
             />
           </div>
@@ -264,7 +304,8 @@ export default function Products() {
                   <Button
                     type="button"
                     onClick={handleImportProducts}
-                    disabled={importLoading || importableProducts.length === 0}
+                    loading={importLoading}
+                    disabled={importableProducts.length === 0}
                   >
                     Import {importableProducts.length} Product{importableProducts.length === 1 ? "" : "s"}
                   </Button>
@@ -339,7 +380,9 @@ export default function Products() {
                     <div><Label>Category</Label><Input name="category" defaultValue={editing?.category || "General"} required /></div>
                     <div><Label>Min Stock</Label><Input name="minStock" type="number" defaultValue={editing?.minStock || 10} required /></div>
                   </div>
-                  <Button type="submit" className="w-full bg-primary text-primary-foreground">{editing ? "Update" : "Add Product"}</Button>
+                  <Button type="submit" className="w-full bg-primary text-primary-foreground" loading={savingProduct}>
+                    {savingProduct ? "Saving..." : editing ? "Update" : "Add Product"}
+                  </Button>
                 </form>
               </DialogContent>
             </Dialog>
@@ -380,8 +423,9 @@ export default function Products() {
                 <Button 
                   onClick={handleUpdateExisting}
                   className="flex-1 bg-primary text-primary-foreground"
+                  loading={savingProduct}
                 >
-                  Update Existing
+                  {savingProduct ? "Updating..." : "Update Existing"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -389,8 +433,18 @@ export default function Products() {
         </div>
 
         {/* Product List */}
-        <div className="space-y-2">
-          {filtered.map(product => (
+        <div className="space-y-2" aria-busy={productsLoading}>
+          {productsLoading ? (
+            <div className="space-y-2" role="status" aria-label="Loading products">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="h-20 animate-pulse rounded-xl border border-border bg-muted/50" />
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground" role="status">
+              {searchTerm ? "No products match your search." : "No products added yet."}
+            </p>
+          ) : filtered.map(product => (
             <div key={product.id} className={cn(
               "flex items-center gap-3 p-3 rounded-xl border border-border bg-card",
               isAddingNew && "opacity-50 pointer-events-none"
@@ -422,7 +476,7 @@ export default function Products() {
                       setTaxRateInput(product.taxRate.toString());
                       setDialogOpen(true);
                     }}
-                    disabled={isAddingNew}
+                    disabled={isAddingNew || deletingProductId === product.id}
                     className="p-1.5 rounded-lg text-muted-foreground hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Pencil className="h-3.5 w-3.5" />
@@ -430,11 +484,24 @@ export default function Products() {
                 )}
                 {canDelete && (
                   <button
-                    onClick={() => deleteProduct(product.id)}
-                    disabled={isAddingNew}
+                    onClick={async () => {
+                      setDeletingProductId(product.id);
+                      try {
+                        const deleted = await deleteProduct(product.id);
+                        if (!deleted) toast.error("Could not delete product. Check your permissions and try again.");
+                      } catch (error) {
+                        console.error("Could not delete product:", error);
+                        toast.error(error instanceof Error ? error.message : "Could not delete product.");
+                      } finally {
+                        setDeletingProductId(null);
+                      }
+                    }}
+                    disabled={isAddingNew || deletingProductId !== null}
                     className="p-1.5 rounded-lg text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    {deletingProductId === product.id
+                      ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                      : <Trash2 className="h-3.5 w-3.5" />}
                   </button>
                 )}
               </div>

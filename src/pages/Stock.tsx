@@ -35,18 +35,20 @@ export default function Stock() {
     return <Navigate to="/" replace />;
   }
 
-  const { products, updateProduct } = useProducts();
-  const { entries, addEntry } = useStockEntries();
+  const { products, updateProduct, loading: productsLoading } = useProducts();
+  const { entries, addEntry, loading: entriesLoading } = useStockEntries();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [stockType, setStockType] = useState<"in" | "out">("in");
+  const [savingStock, setSavingStock] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<string>("");
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [savingInvoice, setSavingInvoice] = useState(false);
   const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
   const [invoiceMeta, setInvoiceMeta] = useState<{ invoiceTotal?: number; supplier?: string; invoiceDate?: string }>({});
   const [invoiceStep, setInvoiceStep] = useState<"upload" | "review">("upload");
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const productId = fd.get("product") as string;
@@ -65,20 +67,40 @@ export default function Stock() {
       return;
     }
 
-    addEntry({
-      productId,
-      productName: product.name,
-      type: stockType,
-      quantity,
-      date: new Date().toISOString().split("T")[0],
-      note,
-    });
-
-    updateProduct(productId, {
-      stock: stockType === "in" ? product.stock + quantity : Math.max(0, product.stock - quantity),
-    });
-
-    setDialogOpen(false);
+    setSavingStock(true);
+    try {
+      const [entryAdded, productUpdated] = await Promise.all([
+        addEntry({
+          productId,
+          productName: product.name,
+          type: stockType,
+          quantity,
+          date: new Date().toISOString().split("T")[0],
+          note,
+        }),
+        updateProduct(productId, {
+          stock: stockType === "in" ? product.stock + quantity : Math.max(0, product.stock - quantity),
+        }),
+      ]);
+      if (!entryAdded || !productUpdated) {
+        toast({
+          title: "Stock update incomplete",
+          description: "The stock movement could not be saved completely. Verify the product quantity and history before retrying.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setDialogOpen(false);
+    } catch (error) {
+      console.error("Could not update stock:", error);
+      toast({
+        title: "Could not update stock",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingStock(false);
+    }
   };
 
   const handleInvoiceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -133,7 +155,7 @@ export default function Stock() {
     }
   };
 
-  const handleConfirmInvoice = () => {
+  const handleConfirmInvoice = async () => {
     const unmatched = invoiceItems.filter(item => !item.matchedProductId);
     if (unmatched.length > 0) {
       toast({
@@ -144,30 +166,50 @@ export default function Stock() {
       return;
     }
 
-    const today = new Date().toISOString().split("T")[0];
-    let added = 0;
-
-    invoiceItems.forEach(item => {
-      if (!item.matchedProductId) return;
-      const product = products.find(p => p.id === item.matchedProductId);
-      if (!product) return;
-
-      addEntry({
-        productId: product.id,
-        productName: product.name,
-        type: "in",
-        quantity: item.quantity,
-        date: today,
-        note: `Invoice: ${invoiceMeta.supplier || "Supplier"} · RWF ${item.unitPrice}/unit`,
+    setSavingInvoice(true);
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      const matchedItems = invoiceItems.flatMap(item => {
+        const product = products.find(p => p.id === item.matchedProductId);
+        return product ? [{ item, product }] : [];
       });
-      updateProduct(product.id, { stock: product.stock + item.quantity });
-      added++;
-    });
+      const quantityByProduct = new Map<string, number>();
 
-    toast({ title: "Stock Updated", description: `${added} product(s) added to stock from invoice.` });
-    setInvoiceDialogOpen(false);
-    setInvoiceStep("upload");
-    setInvoiceItems([]);
+      for (const { item, product } of matchedItems) {
+        quantityByProduct.set(product.id, (quantityByProduct.get(product.id) ?? 0) + item.quantity);
+        const entryAdded = await addEntry({
+          productId: product.id,
+          productName: product.name,
+          type: "in",
+          quantity: item.quantity,
+          date: today,
+          note: `Invoice: ${invoiceMeta.supplier || "Supplier"} · RWF ${item.unitPrice}/unit`,
+        });
+        if (!entryAdded) throw new Error(`Could not record stock entry for ${product.name}.`);
+      }
+
+      const stockUpdates = await Promise.all([...quantityByProduct].map(([productId, addedQuantity]) => {
+        const product = products.find(candidate => candidate.id === productId);
+        return product
+          ? updateProduct(productId, { stock: product.stock + addedQuantity })
+          : false;
+      }));
+      if (stockUpdates.some((updated) => !updated)) throw new Error("One or more product quantities could not be updated.");
+
+      toast({ title: "Stock Updated", description: `${matchedItems.length} product(s) added to stock from invoice.` });
+      setInvoiceDialogOpen(false);
+      setInvoiceStep("upload");
+      setInvoiceItems([]);
+    } catch (error) {
+      console.error("Could not apply invoice stock:", error);
+      toast({
+        title: "Invoice update incomplete",
+        description: `${error instanceof Error ? error.message : "Please try again."} Verify stock entries before retrying.`,
+        variant: "destructive",
+      });
+    } finally {
+      setSavingInvoice(false);
+    }
   };
 
   const unmatchedCount = invoiceItems.filter(item => !item.matchedProductId).length;
@@ -206,7 +248,7 @@ export default function Stock() {
                 </DialogTrigger>
                 <DialogContent className="max-w-[90vw] rounded-2xl">
                   <DialogHeader><DialogTitle>Stock IN</DialogTitle></DialogHeader>
-                  <StockForm products={products} onSubmit={handleSubmit} stockType="in" />
+                  <StockForm products={products} onSubmit={handleSubmit} stockType="in" saving={savingStock} />
                 </DialogContent>
               </Dialog>
             )}
@@ -230,6 +272,7 @@ export default function Stock() {
                     products={products}
                     onSubmit={handleSubmit}
                     stockType="out"
+                    saving={savingStock}
                     selectedProduct={selectedProduct}
                     onProductChange={setSelectedProduct}
                   />
@@ -356,8 +399,9 @@ export default function Stock() {
                     className="flex-1 bg-primary text-primary-foreground"
                     onClick={handleConfirmInvoice}
                     disabled={invoiceItems.length === 0 || unmatchedCount > 0}
+                    loading={savingInvoice}
                   >
-                    Add {invoiceItems.filter(i => i.matchedProductId).length} to Stock
+                    {savingInvoice ? "Adding to Stock..." : `Add ${invoiceItems.filter(i => i.matchedProductId).length} to Stock`}
                   </Button>
                 </div>
               </div>
@@ -381,7 +425,11 @@ export default function Stock() {
                 </tr>
               </thead>
               <tbody>
-                {products.map(product => (
+                {productsLoading ? (
+                  Array.from({ length: 4 }, (_, index) => (
+                    <tr key={index}><td colSpan={5} className="py-3"><div className="h-6 animate-pulse rounded bg-muted/50" /></td></tr>
+                  ))
+                ) : products.map(product => (
                   <tr key={product.id} className="border-b border-border/50">
                     <td className="py-3 px-2 text-foreground font-medium">{product.name}</td>
                     <td className="py-3 px-2 text-muted-foreground">{product.category || "-"}</td>
@@ -401,7 +449,7 @@ export default function Stock() {
                 ))}
               </tbody>
             </table>
-            {products.length === 0 && (
+            {!productsLoading && products.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-8">No products added yet</p>
             )}
           </div>
@@ -422,7 +470,11 @@ export default function Stock() {
                 </tr>
               </thead>
               <tbody>
-                {entries.slice().reverse().map(entry => (
+                {entriesLoading ? (
+                  Array.from({ length: 4 }, (_, index) => (
+                    <tr key={index}><td colSpan={5} className="py-3"><div className="h-6 animate-pulse rounded bg-muted/50" /></td></tr>
+                  ))
+                ) : entries.slice().reverse().map(entry => (
                   <tr key={entry.id} className="border-b border-border/50">
                     <td className="py-3 px-2 text-muted-foreground text-xs">{entry.date}</td>
                     <td className="py-3 px-2 text-foreground font-medium">{entry.productName}</td>
@@ -442,7 +494,7 @@ export default function Stock() {
                 ))}
               </tbody>
             </table>
-            {entries.length === 0 && (
+            {!entriesLoading && entries.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-8">No stock movements yet</p>
             )}
           </div>
@@ -468,12 +520,14 @@ function StockForm({
   products,
   onSubmit,
   stockType,
+  saving,
   selectedProduct,
   onProductChange
 }: {
   products: { id: string; name: string; stock?: number }[];
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   stockType: "in" | "out";
+  saving: boolean;
   selectedProduct?: string;
   onProductChange?: (productId: string) => void;
 }) {
@@ -573,7 +627,9 @@ function StockForm({
         <Label>Note</Label>
         <Input name="note" placeholder={stockType === "in" ? "e.g. Supplier delivery" : "e.g. Customer sale"} />
       </div>
-      <Button type="submit" className="w-full bg-primary text-primary-foreground">Confirm</Button>
+      <Button type="submit" className="w-full bg-primary text-primary-foreground" loading={saving}>
+        {saving ? "Saving..." : "Confirm"}
+      </Button>
     </form>
   );
 }
