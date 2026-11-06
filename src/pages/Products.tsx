@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Pencil, Trash2, Package, AlertCircle, FileSpreadsheet, LoaderCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Package, AlertCircle, FileSpreadsheet, LoaderCircle, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +23,7 @@ export default function Products() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
+  const [templateLoading, setTemplateLoading] = useState(false);
   const [savingProduct, setSavingProduct] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<ProductImportResult | null>(null);
@@ -80,6 +81,29 @@ export default function Products() {
       toast.error(error instanceof Error ? error.message : "Could not read the Excel file.");
     } finally {
       setImportLoading(false);
+    }
+  };
+
+  const handleDownloadTemplate = async () => {
+    setTemplateLoading(true);
+    try {
+      const { createProductImportTemplate } = await import("@/lib/productImport");
+      const template = await createProductImportTemplate();
+      const url = URL.createObjectURL(new Blob([template], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "product-import-template.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      console.error("Could not create product import template:", error);
+      toast.error(error instanceof Error ? error.message : "Could not create the Excel template.");
+    } finally {
+      setTemplateLoading(false);
     }
   };
 
@@ -226,7 +250,7 @@ export default function Products() {
             <Dialog
               open={importDialogOpen}
               onOpenChange={(open) => {
-                if (!importLoading) {
+                if (!importLoading && !templateLoading) {
                   setImportDialogOpen(open);
                   if (!open) setImportResult(null);
                 }
@@ -248,6 +272,17 @@ export default function Products() {
                     Upload an .xlsx file. Its first row must include Name, Price, and Stock (or Quantity).
                     Category, Min Stock, Taxable, and Tax Rate are optional. Prices are treated as RWF.
                   </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleDownloadTemplate}
+                    loading={templateLoading}
+                    disabled={importLoading}
+                  >
+                    <Download className="h-4 w-4" />
+                    Download Excel template
+                  </Button>
                   <Input
                     type="file"
                     accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

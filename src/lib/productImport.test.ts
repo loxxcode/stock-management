@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
-import { parseProductRows, parseProductWorkbook } from "./productImport";
+import { createProductImportTemplate, parseProductRows, parseProductWorkbook } from "./productImport";
 
 describe("parseProductRows", () => {
   it("maps required and optional Excel columns into product records", () => {
@@ -57,6 +57,27 @@ describe("parseProductRows", () => {
         row: 1,
         message: "Include required columns: Name, Price, and Stock (or Quantity).",
       }],
+    });
+  });
+
+  describe("createProductImportTemplate", () => {
+    it("creates an Excel template with headers accepted by the product importer", async () => {
+      const data = await createProductImportTemplate();
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(data);
+
+      expect(workbook.worksheets).toHaveLength(1);
+      expect(workbook.worksheets[0].getRow(1).values).toEqual([
+        undefined,
+        "Name",
+        "Price",
+        "Stock",
+        "Category",
+        "Min Stock",
+        "Taxable",
+        "Tax Rate",
+      ]);
+      expect(await parseProductWorkbook(data)).toEqual({ products: [], errors: [] });
     });
   });
 

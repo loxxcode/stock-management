@@ -41,7 +41,7 @@ export default function EmployeeDashboard() {
           <div className="flex items-center gap-2 text-primary">
             <CheckCircle className="h-4 w-4" />
             <span className="text-xs font-semibold uppercase tracking-[0.2em]">Welcome Back</span>
-          </div>}
+          </div>
           <div className="mt-3">
             <p className="text-lg font-bold text-foreground">
               {user?.user_metadata?.full_name || user?.email || 'Employee'}
@@ -194,7 +194,7 @@ export default function EmployeeDashboard() {
             </div>
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

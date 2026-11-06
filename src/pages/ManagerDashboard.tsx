@@ -48,7 +48,7 @@ export default function ManagerDashboard() {
           <div className="flex items-center gap-2 text-primary">
             <BarChart3 className="h-4 w-4" />
             <span className="text-xs font-semibold uppercase tracking-[0.2em]">Business Overview</span>
-          </div>}
+          </div>
           <div className="mt-3 flex items-center justify-between gap-3">
             <div>
               <p className="text-lg font-bold text-foreground">Stock Management</p>
@@ -178,7 +178,7 @@ export default function ManagerDashboard() {
             </button>
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

@@ -16,6 +16,15 @@ export interface ProductImportResult {
 
 const MAX_IMPORT_ROWS = 5000;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const PRODUCT_IMPORT_HEADERS = [
+  "Name",
+  "Price",
+  "Stock",
+  "Category",
+  "Min Stock",
+  "Taxable",
+  "Tax Rate",
+];
 
 function normalizeHeader(value: unknown): string {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -210,6 +219,45 @@ export async function parseProductWorkbook(data: ArrayBuffer): Promise<ProductIm
   }
 
   return result;
+}
+
+export async function createProductImportTemplate(): Promise<ArrayBuffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Icyizere";
+  const worksheet = workbook.addWorksheet("Products");
+  worksheet.addRow(PRODUCT_IMPORT_HEADERS);
+  worksheet.columns = [
+    { width: 28 },
+    { width: 16 },
+    { width: 12 },
+    { width: 22 },
+    { width: 14 },
+    { width: 12 },
+    { width: 12 },
+  ];
+  worksheet.views = [{ state: "frozen", ySplit: 1 }];
+  worksheet.autoFilter = "A1:G1";
+  worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  worksheet.getRow(1).fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF2563EB" },
+  };
+  [
+    "Required. Product name must be unique.",
+    "Required. Non-negative selling price in RWF.",
+    "Required. Non-negative whole-number quantity.",
+    "Optional. Defaults to General.",
+    "Optional. Non-negative whole number; defaults to 10.",
+    "Optional. Enter Yes or No; defaults to No.",
+    "Optional. Tax percentage from 0 to 100; used only when Taxable is Yes.",
+  ].forEach((note, index) => {
+    worksheet.getCell(1, index + 1).note = note;
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const bytes = new Uint8Array(buffer);
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 export async function readProductImportFile(file: File): Promise<ProductImportResult> {
