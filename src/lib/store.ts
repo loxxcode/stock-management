@@ -223,16 +223,15 @@ export function useProducts() {
     };
   }, [fetchProducts]);
 
-  const addProduct = async (p: Omit<Product, "id">) => {
+  const addProduct = async (p: Omit<Product, "id">): Promise<Product | null> => {
     const userId = await getUserId();
-    const role = await getUserRole();
-    if (!userId) return;
+    if (!userId) return null;
     
     // Check permission for adding products
     const canAdd = await hasPermission('can_add_product');
     if (!canAdd) {
       console.error('Permission denied: cannot add products');
-      return;
+      return null;
     }
 
     const { data, error } = await db
@@ -249,34 +248,35 @@ export function useProducts() {
       })
       .select()
       .single();
-    if (!error && data) {
-      await logAuditEvent('create', 'product', data.id, null, data, `Created product: ${data.name}`);
-      setProducts((prev) => [
-        {
-          id: data.id,
-          name: data.name,
-          price: Number(data.price),
-          stock: Number(data.stock),
-          category: data.category ?? "General",
-          minStock: Number(data.min_stock ?? 10),
-          isTaxable: Boolean(data.is_taxable ?? false),
-          taxRate: Number(data.tax_rate ?? 0),
-        },
-        ...prev,
-      ]);
+    if (error || !data) {
+      console.error("Error adding product:", error);
+      return null;
     }
+
+    await logAuditEvent('create', 'product', data.id, null, data, `Created product: ${data.name}`);
+    const product: Product = {
+      id: data.id,
+      name: data.name,
+      price: Number(data.price),
+      stock: Number(data.stock),
+      category: data.category ?? "General",
+      minStock: Number(data.min_stock ?? 10),
+      isTaxable: Boolean(data.is_taxable ?? false),
+      taxRate: Number(data.tax_rate ?? 0),
+    };
+    setProducts((prev) => [product, ...prev]);
+    return product;
   };
 
-  const updateProduct = async (id: string, p: Partial<Product>) => {
+  const updateProduct = async (id: string, p: Partial<Product>): Promise<boolean> => {
     const userId = await getUserId();
-    const role = await getUserRole();
-    if (!userId) return;
+    if (!userId) return false;
     
     // Check permission for editing products
     const canEdit = await hasPermission('can_edit_product');
     if (!canEdit) {
       console.error('Permission denied: cannot edit products');
-      return;
+      return false;
     }
 
     const updates: any = {};
@@ -289,12 +289,16 @@ export function useProducts() {
     if (p.taxRate !== undefined) updates.tax_rate = p.taxRate;
 
     const { error } = await db.from("products").update(updates).eq("id", id);
-    if (!error) {
-      await logAuditEvent('update', 'product', id, null, updates, `Updated product: ${id}`);
-      setProducts((prev) =>
-        prev.map((item) => (item.id === id ? { ...item, ...p } : item))
-      );
+    if (error) {
+      console.error("Error updating product:", error);
+      return false;
     }
+
+    await logAuditEvent('update', 'product', id, null, updates, `Updated product: ${id}`);
+    setProducts((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, ...p } : item))
+    );
+    return true;
   };
 
   const deleteProduct = async (id: string) => {

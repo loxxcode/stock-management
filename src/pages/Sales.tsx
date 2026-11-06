@@ -17,7 +17,7 @@ import { formatRwf, toRwf, type EntryCurrency } from "@/lib/currency";
 import { calculateProductTax } from "@/lib/productTax";
 
 export default function Sales() {
-  const { profile } = useAuth();
+  const { profile, role, permissions } = useAuth();
   const { products, updateProduct } = useProducts();
   const { sales, addSale } = useSales();
   const { credits, addCustomerCredit, updateCustomerCredit, recordPayment, paymentsByCredit, fetchCreditPayments } = useCustomerCredits();
@@ -201,6 +201,10 @@ export default function Sales() {
   const todaySales = sales.filter(s => s.date === today);
   const todayRevenue = todaySales.reduce((sum, s) => sum + s.total, 0);
 
+  // Permission checks
+  const canRecordSales = role === "admin" || role === "manager" || (permissions?.can_record_sales === true);
+  const canViewSales = role === "admin" || role === "manager" || (permissions?.can_view_sales === true);
+
   return (
     <div className="pb-24">
       <PageHeader title="Sales" subtitle="Record and monitor sales" />
@@ -230,12 +234,13 @@ export default function Sales() {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="w-full bg-primary text-primary-foreground gap-2">
-                <Plus className="h-4 w-4" /> Record Sale
-              </Button>
-            </DialogTrigger>
+          {canRecordSales && (
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="w-full bg-primary text-primary-foreground gap-2">
+                  <Plus className="h-4 w-4" /> Record Sale
+                </Button>
+              </DialogTrigger>
             <DialogContent className="max-w-[90vw] rounded-2xl">
               <DialogHeader>
                 <DialogTitle>Record Sale</DialogTitle>
@@ -304,13 +309,15 @@ export default function Sales() {
               </form>
             </DialogContent>
           </Dialog>
+          )}
 
-          <Dialog open={loanDialogOpen} onOpenChange={setLoanDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="w-full bg-amber-500 text-white gap-2">
-                <HandCoins className="h-4 w-4" /> Record Loan
-              </Button>
-            </DialogTrigger>
+          {canRecordSales && (
+            <Dialog open={loanDialogOpen} onOpenChange={setLoanDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="w-full bg-amber-500 text-white gap-2">
+                  <HandCoins className="h-4 w-4" /> Record Loan
+                </Button>
+              </DialogTrigger>
             <DialogContent className="max-w-[90vw] rounded-2xl">
               <DialogHeader>
                 <DialogTitle>Record Loan / Credit</DialogTitle>
@@ -384,6 +391,7 @@ export default function Sales() {
               </form>
             </DialogContent>
           </Dialog>
+          )}
         </div>
 
         <div className="rounded-xl border border-border bg-card p-3 space-y-2">
@@ -555,83 +563,6 @@ export default function Sales() {
             )}
           </DialogContent>
         </Dialog>
-
-        <div className="space-y-3 rounded-xl border border-border bg-card p-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-medium text-foreground">Sales records</p>
-            <span className="text-xs text-muted-foreground">{filteredSales.length} match{filteredSales.length === 1 ? "" : "es"}</span>
-          </div>
-
-          <div className="grid gap-2">
-            <Input
-              value={salesSearch}
-              onChange={(e) => setSalesSearch(e.target.value)}
-              placeholder="Search product, customer, employee or date"
-              className="h-9"
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                value={salesProduct}
-                onChange={(e) => setSalesProduct(e.target.value)}
-                placeholder="Product name"
-                className="h-9"
-              />
-              <Input
-                type="date"
-                value={salesStartDate}
-                onChange={(e) => setSalesStartDate(e.target.value)}
-                aria-label="Sales start date"
-                className="h-9"
-              />
-              <Input
-                type="date"
-                value={salesEndDate}
-                onChange={(e) => setSalesEndDate(e.target.value)}
-                aria-label="Sales end date"
-                className="h-9"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <select
-                value={salesSource}
-                onChange={(e) => setSalesSource(e.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-              >
-                <option value="all">All sales</option>
-                <option value="sale">Regular sales</option>
-                <option value="loan">Loan records</option>
-                <option value="loan_payment">Loan payments</option>
-              </select>
-              <Button type="button" onClick={() => setSalesFilterApplied(true)} className="h-9 px-3 bg-primary text-primary-foreground">
-                Search
-              </Button>
-            </div>
-          </div>
-
-          {salesFilterApplied && (
-            <div className="space-y-2">
-              {filteredSales.map(sale => (
-                <div key={sale.id} className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card">
-                  <div className="p-2 rounded-lg bg-primary/10"><ShoppingCart className="h-4 w-4 text-primary" /></div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-medium text-foreground text-sm truncate">{sale.productName}</p>
-                      <span className="text-[10px] font-medium px-2 py-1 rounded-full bg-muted text-muted-foreground">
-                        {(sale.source ?? "sale").replace("_", " ")}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Qty: {sale.quantity} · {sale.employeeName} · {sale.date}</p>
-                    {sale.customerName && <p className="text-[10px] text-muted-foreground">Customer: {sale.customerName}</p>}
-                  </div>
-                  <span className="font-semibold text-success text-sm">RWF {sale.total.toLocaleString()}</span>
-                </div>
-              ))}
-              {filteredSales.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-8">No sales match this search.</p>
-              )}
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );

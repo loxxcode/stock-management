@@ -22,7 +22,7 @@ const categoryIcons: Record<string, React.ReactNode> = {
 
 export default function Expenses() {
   const { expenses, addExpense, updateExpense, deleteExpense } = useExpenses();
-  const { role } = useAuth();
+  const { role, permissions } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -42,6 +42,10 @@ export default function Expenses() {
   const thisMonthTotal = thisMonthExpenses.reduce((sum, e) => sum + e.amount, 0);
 
   const categoriesCount = new Set(expenses.map(e => e.category)).size;
+
+  // Permission checks
+  const canViewExpenses = role === "admin" || role === "manager" || (permissions?.can_view_expenses === true);
+  const canAddExpenses = role === "admin" || role === "manager" || (permissions?.can_add_expenses === true);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -129,7 +133,7 @@ export default function Expenses() {
             compact
           />
         </div>
-        {(role === "manager" || role === "employee") && (
+        {canViewExpenses && canAddExpenses && (
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button className="w-full bg-primary text-primary-foreground gap-2">
@@ -167,8 +171,9 @@ export default function Expenses() {
           </Dialog>
         )}
 
-        <div className="space-y-2">
-          {expenses.slice().reverse().map(expense => (
+        {canViewExpenses && (
+          <div className="space-y-2">
+            {expenses.slice().reverse().map(expense => (
             <div key={expense.id} className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card">
               <div className="p-2 rounded-lg bg-destructive/10 text-destructive">
                 {categoryIcons[expense.category] || <Receipt className="h-4 w-4" />}
@@ -179,7 +184,7 @@ export default function Expenses() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-destructive text-sm">-RWF {expense.amount.toLocaleString()}</span>
-                {role === "manager" && (
+                {(role === "manager" || role === "admin") && (
                   <div className="flex gap-1">
                     <Button
                       variant="ghost"
@@ -206,6 +211,7 @@ export default function Expenses() {
             <p className="text-sm text-muted-foreground text-center py-8">No expenses recorded yet</p>
           )}
         </div>
+        )}
 
         {/* Edit Dialog */}
         <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

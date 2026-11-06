@@ -22,7 +22,7 @@ const managerNavItems = [
   { icon: ShoppingCart, label: "Sales", path: "/sales" },
   { icon: Receipt, label: "Expenses", path: "/expenses" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
-  // { icon: Users, label: "Employees", path: "/employees" },
+  { icon: Users, label: "Employees", path: "/employees" },
 ];
 
 // Employee navigation - limited operational access
