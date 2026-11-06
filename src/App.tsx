@@ -52,7 +52,7 @@ const AppShell = () => {
             <Route path="/manager/dashboard" element={<ProtectedRoute allowedRoles={["manager"]}><ManagerDashboard /></ProtectedRoute>} />
             <Route path="/employee/dashboard" element={<ProtectedRoute allowedRoles={["employee"]}><EmployeeDashboard /></ProtectedRoute>} />
             <Route path="/products" element={<ProtectedRoute allowedRoles={["manager", "employee"]}><Products /></ProtectedRoute>} />
-            <Route path="/stock" element={<ProtectedRoute allowedRoles={["manager"]}><Stock /></ProtectedRoute>} />
+            <Route path="/stock" element={<ProtectedRoute allowedRoles={["manager", "employee"]}><Stock /></ProtectedRoute>} />
             <Route path="/sales" element={<ProtectedRoute allowedRoles={["manager", "employee"]}><Sales /></ProtectedRoute>} />
             <Route path="/expenses" element={<ProtectedRoute allowedRoles={["manager", "employee"]}><Expenses /></ProtectedRoute>} />
             <Route path="/employees" element={<ProtectedRoute allowedRoles={["manager"]}><Employees /></ProtectedRoute>} />
