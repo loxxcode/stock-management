@@ -25,6 +25,7 @@ interface EmployeeWithProfile {
   can_edit_product: boolean;
   can_delete_product: boolean;
   can_add_expenses: boolean;
+  can_view_expenses: boolean;
 }
 
 const PERMISSION_LABELS: Record<string, string> = {
@@ -37,6 +38,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   can_edit_product: "Edit Products",
   can_delete_product: "Delete Products",
   can_add_expenses: "Add Expenses",
+  can_view_expenses: "View Expenses",
 };
 
 const PERMISSION_DESCRIPTIONS: Record<string, string> = {
@@ -49,6 +51,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   can_edit_product: "Edit product details",
   can_delete_product: "Remove products from inventory",
   can_add_expenses: "Record expenses",
+  can_view_expenses: "View expense history",
 };
 
 const FULL_ACCESS_PERMISSIONS = {
@@ -61,6 +64,7 @@ const FULL_ACCESS_PERMISSIONS = {
   can_edit_product: true,
   can_delete_product: true,
   can_add_expenses: true,
+  can_view_expenses: true,
 };
 
 const dbToUiPermissions = (row: any) => ({
@@ -437,7 +441,7 @@ export default function Employees() {
                         <div>
                           <p className="font-semibold text-sm text-foreground">{emp.employee_name || emp.full_name}</p>
                           <p className="text-xs text-muted-foreground">
-                            {Object.entries(PERMISSION_LABELS).filter(([k]) => emp[k as keyof typeof emp]).length}/6 permissions
+                            {Object.entries(PERMISSION_LABELS).filter(([k]) => emp[k as keyof typeof emp]).length}/{Object.keys(PERMISSION_LABELS).length} permissions
                           </p>
                         </div>
                       </div>

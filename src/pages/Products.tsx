@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatRwf, toRwf, type EntryCurrency } from "@/lib/currency";
 import { calculateProductTax } from "@/lib/productTax";
-import { readProductImportFile, type ProductImportResult } from "@/lib/productImport";
+import type { ProductImportResult } from "@/lib/productImport";
 import { toast } from "sonner";
 
 export default function Products() {
@@ -68,6 +68,7 @@ export default function Products() {
     setImportLoading(true);
     setImportResult(null);
     try {
+      const { readProductImportFile } = await import("@/lib/productImport");
       setImportResult(await readProductImportFile(file));
     } catch (error) {
       console.error("Could not read product spreadsheet:", error);
@@ -164,113 +165,6 @@ export default function Products() {
     setConfirmDialogOpen(false);
   };
 
-  const handleProductImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-    if (!file) return;
-
-    if (!file.name.toLowerCase().endsWith(".xlsx")) {
-      toast({
-        title: "Unsupported file",
-        description: "Please choose an .xlsx workbook. Save older .xls files as .xlsx first.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      toast({
-        title: "File too large",
-        description: "Please choose an Excel workbook smaller than 10MB.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setImportLoading(true);
-    try {
-      const { parseProductWorkbook } = await import("@/lib/productImport");
-      const { rows, issues } = await parseProductWorkbook(await file.arrayBuffer());
-      if (rows.length === 0) {
-        toast({
-          title: "No products imported",
-          description: issues.slice(0, 3).join(" ") || "No product rows were found in this workbook.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const productsByName = new Map(
-        products.map((product) => [product.name.trim().toLowerCase(), product])
-      );
-      let importedCount = 0;
-      const importIssues = [...issues];
-
-      for (const row of rows) {
-        const key = row.name.trim().toLowerCase();
-        const existing = productsByName.get(key);
-        try {
-          if (existing) {
-            const updatedProduct = {
-              ...existing,
-              price: row.price,
-              stock: existing.stock + row.stock,
-              category: row.category ?? existing.category,
-              minStock: row.minStock ?? existing.minStock,
-              isTaxable: row.isTaxable ?? existing.isTaxable,
-              taxRate: row.taxRate ?? existing.taxRate,
-            };
-            const updated = await updateProduct(existing.id, updatedProduct);
-            if (!updated) {
-              importIssues.push(`Sheet "${row.sheetName}", row ${row.rowNumber}: could not update "${row.name}".`);
-              continue;
-            }
-            productsByName.set(key, updatedProduct);
-          } else {
-            const created = await addProduct({
-              name: row.name.trim(),
-              price: row.price,
-              stock: row.stock,
-              category: row.category || "General",
-              minStock: row.minStock ?? 10,
-              isTaxable: row.isTaxable ?? false,
-              taxRate: row.taxRate ?? 0,
-            });
-            if (!created) {
-              importIssues.push(`Sheet "${row.sheetName}", row ${row.rowNumber}: could not add "${row.name}".`);
-              continue;
-            }
-            productsByName.set(key, created);
-          }
-          importedCount++;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          importIssues.push(`Sheet "${row.sheetName}", row ${row.rowNumber}: ${message}`);
-        }
-      }
-
-      const issueSummary = importIssues.length > 0
-        ? ` ${importIssues.slice(0, 3).join(" ")}${importIssues.length > 3 ? ` And ${importIssues.length - 3} more issue(s).` : ""}`
-        : "";
-      toast({
-        title: importedCount > 0
-          ? (importIssues.length > 0 ? "Import completed with warnings" : "Products imported")
-          : "No products imported",
-        description: `${importedCount} product row(s) imported.${issueSummary}`,
-        variant: importedCount === 0 || importIssues.length > 0 ? "destructive" : "default",
-      });
-      if (importedCount > 0) setImportDialogOpen(false);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({
-        title: "Could not read workbook",
-        description: message,
-        variant: "destructive",
-      });
-    } finally {
-      setImportLoading(false);
-    }
-  };
-
   return (
     <div className="pb-24">
       <PageHeader title="Products" subtitle={`${products.length} items`} />
@@ -292,8 +186,10 @@ export default function Products() {
             <Dialog
               open={importDialogOpen}
               onOpenChange={(open) => {
-                setImportDialogOpen(open);
-                if (!open) setImportResult(null);
+                if (!importLoading) {
+                  setImportDialogOpen(open);
+                  if (!open) setImportResult(null);
+                }
               }}
             >
               <DialogTrigger asChild>
@@ -340,7 +236,9 @@ export default function Products() {
                       {importResult.errors.length > 0 && (
                         <ul className="space-y-1 text-xs text-destructive">
                           {importResult.errors.slice(0, 8).map((item) => (
-                            <li key={`${item.row}-${item.message}`}>Row {item.row}: {item.message}</li>
+                            <li key={`${item.sheetName ?? ""}-${item.row}-${item.message}`}>
+                              {item.sheetName ? `Sheet "${item.sheetName}", ` : ""}Row {item.row}: {item.message}
+                            </li>
                           ))}
                           {importResult.errors.length > 8 && (
                             <li>And {importResult.errors.length - 8} more invalid rows.</li>
@@ -443,52 +341,6 @@ export default function Products() {
                   </div>
                   <Button type="submit" className="w-full bg-primary text-primary-foreground">{editing ? "Update" : "Add Product"}</Button>
                 </form>
-              </DialogContent>
-            </Dialog>
-          )}
-
-          {(canAdd || canEdit) && (
-            <Dialog
-              open={importDialogOpen}
-              onOpenChange={(open) => {
-                if (!importLoading) setImportDialogOpen(open);
-              }}
-            >
-              <DialogTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  aria-label="Import products from Excel"
-                  disabled={productsLoading || importLoading}
-                >
-                  {importLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-[90vw] rounded-2xl">
-                <DialogHeader>
-                  <DialogTitle>Import Products from Excel</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Choose an .xlsx workbook. Products are read from every worksheet with a header row containing Name, Price, and Stock.
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Category and Min Stock are optional. Repeated product names add to existing stock and update the product details.
-                  </p>
-                  {importLoading && (
-                    <div className="flex items-center gap-2 rounded-lg bg-secondary p-3 text-sm text-muted-foreground" role="status" aria-live="polite">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <span>Importing products. Please wait...</span>
-                    </div>
-                  )}
-                  <Input
-                    type="file"
-                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    onChange={handleProductImport}
-                    disabled={importLoading}
-                  />
-                </div>
               </DialogContent>
             </Dialog>
           )}

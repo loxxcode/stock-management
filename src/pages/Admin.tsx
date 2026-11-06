@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Shield, UserCheck, UserX, Users, Settings, FileText, Log } from "lucide-react";
+import { Activity, Shield, UserCheck, UserX, Users, Settings, FileText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import PageHeader from "@/components/PageHeader";
